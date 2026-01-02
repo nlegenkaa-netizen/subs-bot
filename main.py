@@ -403,7 +403,15 @@ async def next_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     await update.message.reply_text(
         "Ближайшее списание 💳\n\n"
-        f"{name} — {price}\n"
+       pp = unpack_price(price)
+price_view = price
+if pp:
+    amount, currency = pp
+    price_view = format_price(amount, currency)
+
+...
+f"{name} — {price_view}\n"
+
         f"📅 {when_line}\n"
         f"⏳ {in_days}\n\n"
         f"(ID: #{_id}, день списания: {day})"
