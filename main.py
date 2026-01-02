@@ -1088,7 +1088,7 @@ def main() -> None:
     application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
     add_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex(r"^➕ Добавить$"), add_flow_start)],
+        entry_points=[MessageHandler(filters.Regex(r"^➕ Добавить$"), add_flow_name)],
         states={
             ADD_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_flow_name)],
             ADD_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_flow_price)],
