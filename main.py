@@ -102,6 +102,14 @@ CURRENCY_SYMBOL = {
 
 
 def parse_price(input_str: str) -> tuple[float, str] | None:
+    """
+    Accepts:
+      - "129"
+      - "129 NOK"
+      - "12.99 EUR"
+      - "199,5 rub"
+    Returns (amount, currency) or None
+    """
     s = (input_str or "").strip()
     if not s:
         return None
@@ -131,6 +139,10 @@ def parse_price(input_str: str) -> tuple[float, str] | None:
 
 
 def format_price(amount: float, currency: str) -> str:
+    """
+    129 NOK -> '129,00 NOK'
+    12.99 EUR -> '€12,99'
+    """
     symbol = CURRENCY_SYMBOL.get(currency, currency)
 
     s = f"{amount:,.2f}"
@@ -142,10 +154,12 @@ def format_price(amount: float, currency: str) -> str:
 
 
 def pack_price(amount: float, currency: str) -> str:
+    """Store canonical in DB as '129.00 NOK' with dot decimal."""
     return f"{amount:.2f} {currency}"
 
 
 def unpack_price(price_text: str) -> tuple[float, str] | None:
+    """Read from DB '129.00 NOK' -> (129.0, 'NOK')"""
     if not price_text:
         return None
     parts = price_text.strip().split()
@@ -257,6 +271,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Команды:\n"
         "• /add <название> <цена> <день>\n"
         "  пример: /add Netflix 129 15\n"
+        "• /add <название> <цена> <валюта> <день>\n"
         "  пример: /add Spotify 12.99 EUR 5\n"
         "• /list — список подписок\n"
         "• /del <id> — удалить подписку\n"
@@ -272,9 +287,11 @@ async def add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if len(args) < 3:
         await update.message.reply_text(
-            "Используй так: /add <название> <цена> <день>\n"
-            "Пример: /add Netflix 129 15\n"
-            "Пример: /add Spotify 12.99 EUR 5\n\n"
+            "Используй так:\n"
+            "• /add <название> <цена> <день>\n"
+            "  пример: /add Netflix 129 15\n"
+            "• /add <название> <цена> <валюта> <день>\n"
+            "  пример: /add Spotify 12.99 EUR 5\n\n"
             "Если в названии пробелы — пока без пробелов (потом улучшим)."
         )
         return
@@ -285,7 +302,7 @@ async def add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # 1) /add Name 12.99 5
     # 2) /add Name 12.99 EUR 5
     if len(args) == 3:
-        price_raw = args[1]              # "12.99" -> будет NOK по умолчанию
+        price_raw = args[1]          # "12.99" -> NOK по умолчанию
         day_raw = args[2]
     elif len(args) == 4:
         price_raw = f"{args[1]} {args[2]}"  # "12.99 EUR"
@@ -313,35 +330,6 @@ async def add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     amount, currency = parsed
     price = pack_price(amount, currency)
-
-    try:
-        day = int(day_raw)
-        if not (1 <= day <= 31):
-            raise ValueError
-    except ValueError:
-        await update.message.reply_text("День должен быть числом от 1 до 31. Пример: /add Netflix 129 15")
-        return
-
-    new_id = add_subscription(user_id, name, price, day)
-    await update.message.reply_text(
-        "Добавлено ✅\n"
-        f"#{new_id} • {name} • {format_price(amount, currency)} • списание {day}-го"
-    )
-
-
-parsed = parse_price(price_raw)
-if not parsed:
-    await update.message.reply_text(
-        "Цена должна быть числом или числом с валютой.\n"
-        "Примеры:\n"
-        "• /add Netflix 129 15\n"
-        "• /add Spotify 12.99 EUR 5\n"
-        "• /add YT 199,5 RUB 1"
-    )
-    return
-
-amount, currency = parsed
-price = pack_price(amount, currency)
 
     try:
         day = int(day_raw)
@@ -605,4 +593,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
