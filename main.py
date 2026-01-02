@@ -627,6 +627,7 @@ def main() -> None:
     application.add_handler(CommandHandler("list", list_cmd))
     application.add_handler(CommandHandler("del", del_cmd))
     application.add_handler(CommandHandler("next", next_cmd))
+    application.add_handler(CommandHandler("sum", sum_cmd))
     application.add_handler(edit_conv)
 
     application.add_error_handler(error_handler)
