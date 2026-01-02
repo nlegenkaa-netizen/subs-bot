@@ -58,6 +58,23 @@ async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "• напоминания за 7 дней"
     )
 
+async def list_subs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    subs = context.user_data.get("subs", [])
+
+    if not subs:
+        await update.message.reply_text(
+            "Пока нет добавленных подписок.\n\n"
+            "Добавь первую так:\n"
+            "/add Netflix 12.99 15"
+        )
+        return
+
+    lines = ["📋 Твои подписки:\n"]
+    for i, s in enumerate(subs, start=1):
+        lines.append(f"{i}) {s['name']} — {s['price']} — списание {s['day']}")
+
+    await update.message.reply_text("\n".join(lines))
+
 
 def main() -> None:
     if not BOT_TOKEN:
