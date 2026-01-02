@@ -7,6 +7,30 @@ from telegram.ext import (
     ContextTypes,
     filters,
 )
+async def add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    args = context.args
+
+    if len(args) < 3:
+        await update.message.reply_text(
+            "Использование:\n"
+            "/add <название> <сумма> <день>\n\n"
+            "Пример:\n"
+            "/add Netflix 12.99 15"
+        )
+        return
+
+    name = args[0]
+    price = args[1]
+    day = args[2]
+
+    await update.message.reply_text(
+        f"Подписка добавлена (черновик):\n\n"
+        f"Сервис: {name}\n"
+        f"Сумма: {price}\n"
+        f"День списания: {day}\n\n"
+        f"⏳ Напоминания скоро появятся"
+    )
+
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
@@ -45,4 +69,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-main()
+
