@@ -277,6 +277,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "• /del <id> — удалить подписку\n"
         "• /edit <id> — редактировать подписку\n"
         "• /next — ближайшее списание\n"
+        "* /sum — сколько списывается в месяц\n"
         "• /cancel — отменить диалог\n"
     )
 
