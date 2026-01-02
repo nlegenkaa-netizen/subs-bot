@@ -568,8 +568,10 @@ async def add_flow_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
 
 async def add_flow_price(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     raw = (update.message.text or "").strip()
-    parsed = parse_price(raw)
-    if not parsed:
+
+    amount, currency = parse_price(raw)
+
+    if not amount:
         await update.message.reply_text(
             "Не поняла цену 😕\n"
             "Примеры: 128.30 | 12,99 евро | 1805,90 кр | 199,5 руб",
@@ -577,9 +579,8 @@ async def add_flow_price(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         return ADD_PRICE
 
-    amount, currency = parsed
     context.user_data["add_amount"] = float(amount)
-    context.user_data["add_currency"] = currency
+    context.user_data["add_currency"] = currency or "NOK"
 
     await update.message.reply_text(
         "Когда было (или будет) списание?\n"
@@ -589,6 +590,7 @@ async def add_flow_price(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         reply_markup=main_menu_keyboard(),
     )
     return ADD_DATE
+
 
 
 async def add_flow_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
