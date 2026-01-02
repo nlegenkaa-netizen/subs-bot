@@ -439,6 +439,35 @@ async def next_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"(ID: #{_id}, день списания: {day})"
     )
 
+async def sum_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    rows = list_subscriptions(user_id)
+
+    if not rows:
+        await update.message.reply_text("Пока нет подписок. Добавь: /add Netflix 129 15")
+        return
+
+    totals: dict[str, float] = {}
+
+    for _id, name, price, day in rows:
+        pp = unpack_price(price)
+        if not pp:
+            # Если есть старые записи без формата "число валюта" — пропускаем
+            continue
+        amount, currency = pp
+        totals[currency] = totals.get(currency, 0.0) + float(amount)
+
+    if not totals:
+        await update.message.reply_text("Не смогла посчитать суммы 😕 Проверь цены в подписках через /list.")
+        return
+
+    lines = ["Итого в месяц 💸"]
+    for currency in sorted(totals.keys()):
+        lines.append(f"{currency}: {format_price(totals[currency], currency)}")
+
+    await update.message.reply_text("\n".join(lines))
+
+
 
 # -----------------------------
 # /EDIT CONVERSATION
