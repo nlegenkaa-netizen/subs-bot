@@ -303,7 +303,21 @@ async def add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     name = args[0]
-    price = args[1]
+    price_raw = args[1]
+parsed = parse_price(price_raw)
+if not parsed:
+    await update.message.reply_text(
+        "Цена должна быть числом или числом с валютой.\n"
+        "Примеры:\n"
+        "• /add Netflix 129 15\n"
+        "• /add Spotify 12.99 EUR 5\n"
+        "• /add YT 199,5 RUB 1"
+    )
+    return
+
+amount, currency = parsed
+price = pack_price(amount, currency)
+
     day_raw = args[2]
 
     try:
@@ -317,7 +331,7 @@ async def add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     new_id = add_subscription(user_id, name, price, day)
     await update.message.reply_text(
         f"Добавлено ✅\n"
-        f"#{new_id} • {name} • {price} • списание {day}-го"
+        f"#{new_id} • {name} • {format_price(amount, currency)} • списание {day}-го"
     )
 
 
@@ -331,7 +345,15 @@ async def list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     lines = ["Твои подписки:"]
     for _id, name, price, day in rows:
-        lines.append(f"#{_id} • {name} • {price} • день {day}")
+        pp = unpack_price(price)
+if pp:
+    amount, currency = pp
+    price_view = format_price(amount, currency)
+else:
+    price_view = price  # fallback для старых записей
+
+lines.append(f"#{_id} • {name} • {price_view} • день {day}")
+
     lines.append("\nРедактировать: /edit <id>  |  Удалить: /del <id>")
     await update.message.reply_text("\n".join(lines))
 
