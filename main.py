@@ -4,7 +4,7 @@ import logging
 import calendar
 from datetime import date
 
-from telegram import Update
+from telegram import Update, BotCommand
 from telegram.ext import (
     Application,
     CommandHandler,
