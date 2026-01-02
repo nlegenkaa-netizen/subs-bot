@@ -229,6 +229,52 @@ def parse_price(input_str: str) -> Optional[tuple[float, str]]:
 
     return amount, currency
 
+def try_parse_quick_add(text: str) -> Optional[tuple[str, float, str, date]]:
+    """
+    Пытается распарсить строку формата:
+    <название...> <цена> [валюта] <дата>
+
+    Примеры:
+    - Suno 128,30 кр 29.12.25
+    - Netflix 129 NOK 02.01.2026
+    - Apple Music 12.99 EUR 05.01.25
+    - Genspark 20 $ 01.12.25
+    """
+    s = (text or "").strip()
+    if not s:
+        return None
+
+    parts = s.split()
+    if len(parts) < 3:
+        return None
+
+    # дата — всегда последний токен
+    last_token = parts[-1]
+    last_dt = parse_ru_date(last_token)
+    if not last_dt:
+        return None
+
+    # варианты:
+    # 1) ... <price> <date>
+    # 2) ... <price> <currency> <date>
+    if len(parts) >= 4 and is_currency_token(parts[-2]):
+        price_raw = f"{parts[-3]} {parts[-2]}"
+        name_parts = parts[:-3]
+    else:
+        price_raw = parts[-2]
+        name_parts = parts[:-2]
+
+    if not name_parts:
+        return None
+
+    name = " ".join(name_parts).strip()
+    parsed_price = parse_price(price_raw)
+    if not parsed_price:
+        return None
+
+    amount, currency = parsed_price
+    return name, float(amount), currency, last_dt
+
 
 def format_price(amount: float, currency: str) -> str:
     symbol = CURRENCY_SYMBOL.get(currency, currency)
