@@ -598,6 +598,20 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     except Exception:
         pass
 
+async def post_init(application: Application) -> None:
+    commands = [
+        BotCommand("start", "Показать помощь и команды"),
+        BotCommand("add", "Добавить подписку"),
+        BotCommand("list", "Показать список подписок"),
+        BotCommand("next", "Ближайшее списание"),
+        BotCommand("sum", "Итого списаний в месяц"),
+        BotCommand("edit", "Редактировать подписку по ID"),
+        BotCommand("del", "Удалить подписку по ID"),
+        BotCommand("cancel", "Отменить редактирование"),
+    ]
+    await application.bot.set_my_commands(commands)
+
+
 
 # -----------------------------
 # MAIN
