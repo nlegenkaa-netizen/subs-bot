@@ -876,6 +876,36 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await help_cmd(update, context)
         return
 
+    # --- QUICK ADD: если пользователь просто написал строку подписки ---
+    parsed = try_parse_quick_add(text)
+    if parsed:
+        name, amount, currency, last_dt = parsed
+
+        user_id = update.effective_user.id
+        day = last_dt.day
+        period = DEFAULT_PERIOD
+        price = pack_price(amount, currency)
+
+        new_id = add_subscription(
+            user_id=user_id,
+            name=name,
+            price=price,
+            day=day,
+            period=period,
+            last_charge_date=last_dt.isoformat(),
+        )
+
+        price_view = format_price(amount, currency)
+        await update.message.reply_text(
+            "Добавлено ✅\n"
+            f"#{new_id} • {name}\n"
+            f"💰 {price_view}\n"
+            f"📌 последнее списание: {format_date_ru(last_dt)}\n\n"
+            "Как часто списывается?",
+            reply_markup=period_keyboard(new_id),
+        )
+        return
+    
     await update.message.reply_text("Нажми кнопку снизу 👇", reply_markup=main_menu_keyboard())
 
 
