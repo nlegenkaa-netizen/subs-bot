@@ -487,20 +487,7 @@ async def add_flow_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         day = last_dt.day
         context.user_data["add_day"] = day
         context.user_data["add_last_date"] = last_dt.isoformat()  # YYYY-MM-DD
-    else:
-        # try as day number
-        try:
-            day = int(raw)
-            if not (1 <= day <= 31):
-                raise ValueError
-        except ValueError:
-            await update.message.reply_text(
-                "Не поняла дату 😕\n"
-                "Напиши либо день (1–31), либо дату: 29.12.25"
-            )
-            return ADD_DATE
-        context.user_data["add_day"] = day
-        context.user_data["add_last_date"] = None
+   
 
     # period default month
     period = DEFAULT_PERIOD
