@@ -462,26 +462,50 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 # -----------------------------
 # ADD FLOW (no commands)
 # -----------------------------
-async def add_flow_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # clear add context
-    for k in ("add_name", "add_amount", "add_currency", "add_day", "add_last_date", "add_period"):
-        context.user_data.pop(k, None)
-
-    await update.message.reply_text(
-        "Ок 🙂 Как называется подписка?\n"
-        "Пример: Suno, Netflix, Apple Music",
-        reply_markup=main_menu_keyboard(),
-    )
-    return ADD_NAME
-
-
 async def add_flow_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    name = (update.message.text or "").strip()
-    if not name:
-        await update.message.reply_text("Название не должно быть пустым. Напиши ещё раз 🙂", reply_markup=main_menu_keyboard())
+    text = (update.message.text or "").strip()
+
+    # 1️⃣ Пытаемся распарсить "одной строкой"
+    parsed = try_parse_quick_add(text)
+    if parsed:
+        name, amount, currency, last_dt = parsed
+
+        user_id = update.effective_user.id
+        day = last_dt.day
+        period = DEFAULT_PERIOD
+        price = pack_price(amount, currency)
+
+        new_id = add_subscription(
+            user_id=user_id,
+            name=name,
+            price=price,
+            day=day,
+            period=period,
+            last_charge_date=last_dt.isoformat(),
+        )
+
+        price_view = format_price(amount, currency)
+
+        await update.message.reply_text(
+            "Добавлено ✅\n"
+            f"#{new_id} • {name}\n"
+            f"💰 {price_view}\n"
+            f"📌 последнее списание: {format_date_ru(last_dt)}\n\n"
+            "Как часто списывается?",
+            reply_markup=period_keyboard(new_id),
+        )
+
+        return ConversationHandler.END
+
+    # 2️⃣ Если не одна строка — обычный сценарий
+    if not text:
+        await update.message.reply_text(
+            "Название не должно быть пустым. Напиши ещё раз 🙂",
+            reply_markup=main_menu_keyboard(),
+        )
         return ADD_NAME
 
-    context.user_data["add_name"] = name
+    context.user_data["add_name"] = text
 
     await update.message.reply_text(
         "Сколько списывается?\n"
