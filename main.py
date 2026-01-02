@@ -281,24 +281,53 @@ async def add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     name = args[0]
 
-# Поддерживаем два формата:
-# 1) /add Name 12.99 5
-# 2) /add Name 12.99 EUR 5
-if len(args) == 3:
-    price_raw = args[1]              # "12.99" -> будет NOK по умолчанию
-    day_raw = args[2]
-elif len(args) == 4:
-    price_raw = f"{args[1]} {args[2]}"  # "12.99 EUR"
-    day_raw = args[3]
-else:
+    # Поддерживаем два формата:
+    # 1) /add Name 12.99 5
+    # 2) /add Name 12.99 EUR 5
+    if len(args) == 3:
+        price_raw = args[1]              # "12.99" -> будет NOK по умолчанию
+        day_raw = args[2]
+    elif len(args) == 4:
+        price_raw = f"{args[1]} {args[2]}"  # "12.99 EUR"
+        day_raw = args[3]
+    else:
+        await update.message.reply_text(
+            "Используй так:\n"
+            "• /add <название> <цена> <день>\n"
+            "  пример: /add Netflix 129 15\n"
+            "• /add <название> <цена> <валюта> <день>\n"
+            "  пример: /add Spotify 12.99 EUR 5"
+        )
+        return
+
+    parsed = parse_price(price_raw)
+    if not parsed:
+        await update.message.reply_text(
+            "Цена должна быть числом или числом с валютой.\n"
+            "Примеры:\n"
+            "• /add Netflix 129 15\n"
+            "• /add Spotify 12.99 EUR 5\n"
+            "• /add YT 199,5 RUB 1"
+        )
+        return
+
+    amount, currency = parsed
+    price = pack_price(amount, currency)
+
+    try:
+        day = int(day_raw)
+        if not (1 <= day <= 31):
+            raise ValueError
+    except ValueError:
+        await update.message.reply_text("День должен быть числом от 1 до 31. Пример: /add Netflix 129 15")
+        return
+
+    new_id = add_subscription(user_id, name, price, day)
     await update.message.reply_text(
-        "Используй так:\n"
-        "• /add <название> <цена> <день>\n"
-        "  пример: /add Netflix 129 15\n"
-        "• /add <название> <цена> <валюта> <день>\n"
-        "  пример: /add Spotify 12.99 EUR 5"
+        "Добавлено ✅\n"
+        f"#{new_id} • {name} • {format_price(amount, currency)} • списание {day}-го"
     )
-    return
+
 
 parsed = parse_price(price_raw)
 if not parsed:
