@@ -22,6 +22,10 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     name = args[0]
     price = args[1]
     day = args[2]
+    
+    subs = context.user_data.get("subs", [])
+    subs.append({"name": name, "price": price, "day": day})
+    context.user_data["subs"] = subs
 
     await update.message.reply_text(
         f"Подписка добавлена (черновик):\n\n"
@@ -63,6 +67,7 @@ def main() -> None:
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("add", add))
+    app.add_handler(CommandHandler("list", list_subs))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, fallback))
 
     app.run_polling(allowed_updates=Update.ALL_TYPES)
