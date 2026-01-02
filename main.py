@@ -285,37 +285,56 @@ async def add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     args = context.args
 
+    # Минимум: name price day  (например: Netflix 129 15)
     if len(args) < 3:
         await update.message.reply_text(
             "Используй так:\n"
             "• /add <название> <цена> <день>\n"
             "  пример: /add Netflix 129 15\n"
             "• /add <название> <цена> <валюта> <день>\n"
-            "  пример: /add Spotify 12.99 EUR 5\n\n"
-            "Если в названии пробелы — пока без пробелов (потом улучшим)."
+            "  пример: /add Spotify 12.99 EUR 5\n"
+            "• Название может быть с пробелами:\n"
+            "  пример: /add Apple Music 12.99 EUR 5"
         )
         return
 
-    name = args[0]
+    # День всегда последний
+    day_raw = args[-1]
 
-    # Поддерживаем два формата:
-    # 1) /add Name 12.99 5
-    # 2) /add Name 12.99 EUR 5
-    if len(args) == 3:
-        price_raw = args[1]          # "12.99" -> NOK по умолчанию
-        day_raw = args[2]
-    elif len(args) == 4:
-        price_raw = f"{args[1]} {args[2]}"  # "12.99 EUR"
-        day_raw = args[3]
-    else:
+    # Проверяем день сразу
+    try:
+        day = int(day_raw)
+        if not (1 <= day <= 31):
+            raise ValueError
+    except ValueError:
         await update.message.reply_text(
-            "Используй так:\n"
-            "• /add <название> <цена> <день>\n"
-            "  пример: /add Netflix 129 15\n"
-            "• /add <название> <цена> <валюта> <день>\n"
-            "  пример: /add Spotify 12.99 EUR 5"
+            "День должен быть числом от 1 до 31.\n"
+            "Примеры:\n"
+            "• /add Netflix 129 15\n"
+            "• /add Apple Music 12.99 EUR 5"
         )
         return
+
+    # Теперь разбираем хвост: ... price [currency] day
+    # Если предпоследний токен — валюта (EUR/USD/NOK...), то формат: price currency day
+    # Иначе: price day
+    if len(args) >= 4 and args[-2].upper() in SUPPORTED_CURRENCIES:
+        currency = args[-2].upper()
+        price_token = args[-3]
+        name_parts = args[:-3]
+        price_raw = f"{price_token} {currency}"
+    else:
+        name_parts = args[:-2]
+        price_raw = args[-2]
+
+    if not name_parts:
+        await update.message.reply_text(
+            "Не вижу название подписки 😕\n"
+            "Пример: /add Apple Music 12.99 EUR 5"
+        )
+        return
+
+    name = " ".join(name_parts).strip()
 
     parsed = parse_price(price_raw)
     if not parsed:
@@ -324,26 +343,19 @@ async def add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "Примеры:\n"
             "• /add Netflix 129 15\n"
             "• /add Spotify 12.99 EUR 5\n"
-            "• /add YT 199,5 RUB 1"
+            "• /add Apple Music 199,5 RUB 1"
         )
         return
 
     amount, currency = parsed
     price = pack_price(amount, currency)
 
-    try:
-        day = int(day_raw)
-        if not (1 <= day <= 31):
-            raise ValueError
-    except ValueError:
-        await update.message.reply_text("День должен быть числом от 1 до 31. Пример: /add Netflix 129 15")
-        return
-
     new_id = add_subscription(user_id, name, price, day)
     await update.message.reply_text(
         "Добавлено ✅\n"
         f"#{new_id} • {name} • {format_price(amount, currency)} • списание {day}-го"
     )
+
 
 
 async def list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
