@@ -66,6 +66,18 @@ def format_date_ru(dt: date) -> str:
     return f"{dt.day} {MONTHS_RU[dt.month]} {dt.year}"
 
 
+from datetime import datetime, date
+
+def parse_ru_date(text: str) -> date | None:
+    text = text.strip()
+    for fmt in ("%d.%m.%y", "%d.%m.%Y"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
 def days_word_ru(n: int) -> str:
     n_abs = abs(n)
     if 11 <= (n_abs % 100) <= 14:
