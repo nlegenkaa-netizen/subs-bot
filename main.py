@@ -621,7 +621,8 @@ def main() -> None:
         raise RuntimeError("BOT_TOKEN is not set in environment variables.")
 
     init_db()
-    application = Application.builder().token(BOT_TOKEN).build()
+   application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
+build()
 
     edit_conv = ConversationHandler(
         entry_points=[CommandHandler("edit", edit_start)],
