@@ -93,6 +93,24 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
+    def init_db():
+    conn = sqlite3.connect("/data/subs.db")
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            name TEXT,
+            price TEXT,
+            day TEXT
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
     name = args[0]
     price = args[1]
 
