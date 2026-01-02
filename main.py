@@ -26,7 +26,7 @@ logging.basicConfig(
 )
 
 # Conversation states for /edit
-EDIT_CHOOSE_FIELD, EDIT_ENTER_VALUE = range(2)
+"price": "Ок. Введи новую цену.\nПримеры: 129 | 12.99 EUR | 199,5 RUB",
 
 
 # -----------------------------
