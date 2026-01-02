@@ -1,6 +1,8 @@
 import os
 import sqlite3
 import logging
+import calendar
+from datetime import date
 
 from telegram import Update
 from telegram.ext import (
@@ -25,6 +27,69 @@ logging.basicConfig(
 
 # Conversation states for /edit
 EDIT_CHOOSE_FIELD, EDIT_ENTER_VALUE = range(2)
+
+
+# -----------------------------
+# DATE HELPERS for /next
+# -----------------------------
+MONTHS_RU = {
+    1: "января",
+    2: "февраля",
+    3: "марта",
+    4: "апреля",
+    5: "мая",
+    6: "июня",
+    7: "июля",
+    8: "августа",
+    9: "сентября",
+    10: "октября",
+    11: "ноября",
+    12: "декабря",
+}
+
+
+def clamp_day(year: int, month: int, wanted_day: int) -> int:
+    """If wanted_day doesn't exist in that month, clamp to last day of month."""
+    last_day = calendar.monthrange(year, month)[1]
+    return min(max(1, wanted_day), last_day)
+
+
+def next_charge_date(day_of_month: int, today: date) -> date:
+    """
+    Returns the next charge date for a subscription with 'day_of_month'.
+    If the day doesn't exist in current/next month, clamps to month end.
+    """
+    y, m = today.year, today.month
+    d_this_month = clamp_day(y, m, day_of_month)
+    candidate = date(y, m, d_this_month)
+
+    if candidate < today:
+        # move to next month
+        if m == 12:
+            y, m = y + 1, 1
+        else:
+            m += 1
+        d_next = clamp_day(y, m, day_of_month)
+        candidate = date(y, m, d_next)
+
+    return candidate
+
+
+def format_date_ru(dt: date) -> str:
+    return f"{dt.day} {MONTHS_RU[dt.month]} {dt.year}"
+
+
+def days_word_ru(n: int) -> str:
+    # 1 день, 2-4 дня, 5-20 дней, 21 день, 22-24 дня, 25-30 дней...
+    n_abs = abs(n)
+    if 11 <= (n_abs % 100) <= 14:
+        return "дней"
+    last = n_abs % 10
+    if last == 1:
+        return "день"
+    if last in (2, 3, 4):
+        return "дня"
+    return "дней"
 
 
 # -----------------------------
@@ -130,6 +195,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "  пример: /del 3\n"
         "• /edit <id> — редактировать подписку\n"
         "  пример: /edit 3\n"
+        "• /next — ближайшее списание\n"
         "• /cancel — отменить диалог\n"
     )
 
@@ -197,6 +263,39 @@ async def del_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(f"Удалено ✅ (#{sub_id})")
     else:
         await update.message.reply_text("Не нашла подписку с таким ID (или она не твоя).")
+
+
+async def next_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    rows = list_subscriptions(user_id)
+
+    if not rows:
+        await update.message.reply_text("Пока нет подписок. Добавь: /add Netflix 129 15")
+        return
+
+    today = date.today()
+
+    best = None
+    # best: (charge_date, id, name, price, day)
+    for _id, name, price, day in rows:
+        ch = next_charge_date(int(day), today)
+        item = (ch, _id, name, price, day)
+        if best is None or item[0] < best[0]:
+            best = item
+
+    charge_date, _id, name, price, day = best
+    delta_days = (charge_date - today).days
+
+    when_line = format_date_ru(charge_date)
+    in_days = f"через {delta_days} {days_word_ru(delta_days)}" if delta_days != 0 else "сегодня"
+
+    await update.message.reply_text(
+        "Ближайшее списание 💳\n\n"
+        f"{name} — {price}\n"
+        f"📅 {when_line}\n"
+        f"⏳ {in_days}\n\n"
+        f"(ID: #{_id}, день списания: {day})"
+    )
 
 
 # -----------------------------
@@ -309,7 +408,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 # -----------------------------
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logging.exception("Unhandled exception: %s", context.error)
-    # Не всегда update будет Update
     try:
         if isinstance(update, Update) and update.effective_message:
             await update.effective_message.reply_text("Упс, ошибка 😕 Попробуй ещё раз или напиши /start.")
@@ -328,7 +426,6 @@ def main() -> None:
 
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # ConversationHandler MUST be added before generic text handlers (if you ever add them later)
     edit_conv = ConversationHandler(
         entry_points=[CommandHandler("edit", edit_start)],
         states={
@@ -346,6 +443,7 @@ def main() -> None:
     application.add_handler(CommandHandler("add", add_cmd))
     application.add_handler(CommandHandler("list", list_cmd))
     application.add_handler(CommandHandler("del", del_cmd))
+    application.add_handler(CommandHandler("next", next_cmd))
     application.add_handler(edit_conv)
 
     application.add_error_handler(error_handler)
