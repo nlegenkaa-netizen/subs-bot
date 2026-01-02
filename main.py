@@ -26,8 +26,7 @@ logging.basicConfig(
 )
 
 # Conversation states for /edit
-"price": "Ок. Введи новую цену.\nПримеры: 129 | 12.99 EUR | 199,5 RUB",
-
+EDIT_CHOOSE_FIELD, EDIT_ENTER_VALUE = range(2)
 
 # -----------------------------
 # DATE HELPERS for /next
@@ -49,22 +48,16 @@ MONTHS_RU = {
 
 
 def clamp_day(year: int, month: int, wanted_day: int) -> int:
-    """If wanted_day doesn't exist in that month, clamp to last day of month."""
     last_day = calendar.monthrange(year, month)[1]
     return min(max(1, wanted_day), last_day)
 
 
 def next_charge_date(day_of_month: int, today: date) -> date:
-    """
-    Returns the next charge date for a subscription with 'day_of_month'.
-    If the day doesn't exist in current/next month, clamps to month end.
-    """
     y, m = today.year, today.month
     d_this_month = clamp_day(y, m, day_of_month)
     candidate = date(y, m, d_this_month)
 
     if candidate < today:
-        # move to next month
         if m == 12:
             y, m = y + 1, 1
         else:
@@ -80,7 +73,6 @@ def format_date_ru(dt: date) -> str:
 
 
 def days_word_ru(n: int) -> str:
-    # 1 день, 2-4 дня, 5-20 дней, 21 день, 22-24 дня, 25-30 дней...
     n_abs = abs(n)
     if 11 <= (n_abs % 100) <= 14:
         return "дней"
@@ -92,6 +84,9 @@ def days_word_ru(n: int) -> str:
     return "дней"
 
 
+# -----------------------------
+# PRICE & CURRENCY HELPERS
+# -----------------------------
 SUPPORTED_CURRENCIES = {"NOK", "EUR", "USD", "RUB", "SEK", "DKK", "GBP"}
 DEFAULT_CURRENCY = "NOK"
 
@@ -105,15 +100,8 @@ CURRENCY_SYMBOL = {
     "GBP": "£",
 }
 
+
 def parse_price(input_str: str) -> tuple[float, str] | None:
-    """
-    Accepts:
-    - "129"
-    - "129 NOK"
-    - "12.99 EUR"
-    - "199,5 rub"
-    Returns (amount, currency) or None
-    """
     s = (input_str or "").strip()
     if not s:
         return None
@@ -131,7 +119,6 @@ def parse_price(input_str: str) -> tuple[float, str] | None:
     if currency not in SUPPORTED_CURRENCIES:
         return None
 
-    # normalize decimal comma to dot and remove spaces
     amount_str = amount_str.replace(",", ".").replace(" ", "")
     try:
         amount = float(amount_str)
@@ -144,30 +131,21 @@ def parse_price(input_str: str) -> tuple[float, str] | None:
 
 
 def format_price(amount: float, currency: str) -> str:
-    """
-    129 -> '129,00 NOK'
-    12.99 EUR -> '€12,99'
-    """
     symbol = CURRENCY_SYMBOL.get(currency, currency)
-    # format with 2 decimals, comma separator
+
     s = f"{amount:,.2f}"
-    # python uses ',' for thousands and '.' for decimals in default locale:
-    # convert: 1,234.50 -> 1 234,50
     s = s.replace(",", " ").replace(".", ",")
 
     if currency in {"EUR", "USD", "GBP"}:
         return f"{symbol}{s}"
-    else:
-        return f"{s} {symbol}"
+    return f"{s} {symbol}"
 
 
 def pack_price(amount: float, currency: str) -> str:
-    """Store canonical in DB as '129.00 NOK' with dot decimal."""
     return f"{amount:.2f} {currency}"
 
 
 def unpack_price(price_text: str) -> tuple[float, str] | None:
-    """Read from DB '129.00 NOK' -> (129.0, 'NOK')"""
     if not price_text:
         return None
     parts = price_text.strip().split()
@@ -178,8 +156,7 @@ def unpack_price(price_text: str) -> tuple[float, str] | None:
     except ValueError:
         return None
     currency = parts[1].upper()
-    return (amount, currency)
-
+    return amount, currency
 
 
 # -----------------------------
@@ -226,7 +203,7 @@ def list_subscriptions(user_id: int) -> list[tuple]:
     )
     rows = cur.fetchall()
     conn.close()
-    return rows  # [(id, name, price, day), ...]
+    return rows
 
 
 def delete_subscription(user_id: int, sub_id: int) -> bool:
@@ -251,7 +228,7 @@ def get_subscription_by_id(user_id: int, sub_id: int) -> tuple | None:
     )
     row = cur.fetchone()
     conn.close()
-    return row  # (id, name, price, day) or None
+    return row
 
 
 def update_subscription_field(user_id: int, sub_id: int, field: str, value) -> bool:
@@ -280,11 +257,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Команды:\n"
         "• /add <название> <цена> <день>\n"
         "  пример: /add Netflix 129 15\n"
+        "  пример: /add Spotify 12.99 EUR 5\n"
         "• /list — список подписок\n"
         "• /del <id> — удалить подписку\n"
-        "  пример: /del 3\n"
         "• /edit <id> — редактировать подписку\n"
-        "  пример: /edit 3\n"
         "• /next — ближайшее списание\n"
         "• /cancel — отменить диалог\n"
     )
@@ -297,29 +273,30 @@ async def add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if len(args) < 3:
         await update.message.reply_text(
             "Используй так: /add <название> <цена> <день>\n"
-            "Пример: /add Netflix 129 15\n\n"
+            "Пример: /add Netflix 129 15\n"
+            "Пример: /add Spotify 12.99 EUR 5\n\n"
             "Если в названии пробелы — пока без пробелов (потом улучшим)."
         )
         return
 
     name = args[0]
     price_raw = args[1]
-parsed = parse_price(price_raw)
-if not parsed:
-    await update.message.reply_text(
-        "Цена должна быть числом или числом с валютой.\n"
-        "Примеры:\n"
-        "• /add Netflix 129 15\n"
-        "• /add Spotify 12.99 EUR 5\n"
-        "• /add YT 199,5 RUB 1"
-    )
-    return
 
-amount, currency = parsed
-price = pack_price(amount, currency)
+    parsed = parse_price(price_raw)
+    if not parsed:
+        await update.message.reply_text(
+            "Цена должна быть числом или числом с валютой.\n"
+            "Примеры:\n"
+            "• /add Netflix 129 15\n"
+            "• /add Spotify 12.99 EUR 5\n"
+            "• /add YT 199,5 RUB 1"
+        )
+        return
+
+    amount, currency = parsed
+    price = pack_price(amount, currency)
 
     day_raw = args[2]
-
     try:
         day = int(day_raw)
         if not (1 <= day <= 31):
@@ -330,7 +307,7 @@ price = pack_price(amount, currency)
 
     new_id = add_subscription(user_id, name, price, day)
     await update.message.reply_text(
-        f"Добавлено ✅\n"
+        "Добавлено ✅\n"
         f"#{new_id} • {name} • {format_price(amount, currency)} • списание {day}-го"
     )
 
@@ -346,13 +323,13 @@ async def list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     lines = ["Твои подписки:"]
     for _id, name, price, day in rows:
         pp = unpack_price(price)
-if pp:
-    amount, currency = pp
-    price_view = format_price(amount, currency)
-else:
-    price_view = price  # fallback для старых записей
+        if pp:
+            amount, currency = pp
+            price_view = format_price(amount, currency)
+        else:
+            price_view = price
 
-lines.append(f"#{_id} • {name} • {price_view} • день {day}")
+        lines.append(f"#{_id} • {name} • {price_view} • день {day}")
 
     lines.append("\nРедактировать: /edit <id>  |  Удалить: /del <id>")
     await update.message.reply_text("\n".join(lines))
@@ -386,9 +363,8 @@ async def next_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     today = date.today()
+    best = None  # (charge_date, id, name, price, day)
 
-    best = None
-    # best: (charge_date, id, name, price, day)
     for _id, name, price, day in rows:
         ch = next_charge_date(int(day), today)
         item = (ch, _id, name, price, day)
@@ -401,17 +377,16 @@ async def next_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     when_line = format_date_ru(charge_date)
     in_days = f"через {delta_days} {days_word_ru(delta_days)}" if delta_days != 0 else "сегодня"
 
+    pp = unpack_price(price)
+    if pp:
+        amount, currency = pp
+        price_view = format_price(amount, currency)
+    else:
+        price_view = price
+
     await update.message.reply_text(
         "Ближайшее списание 💳\n\n"
-       pp = unpack_price(price)
-price_view = price
-if pp:
-    amount, currency = pp
-    price_view = format_price(amount, currency)
-
-...
-f"{name} — {price_view}\n"
-
+        f"{name} — {price_view}\n"
         f"📅 {when_line}\n"
         f"⏳ {in_days}\n\n"
         f"(ID: #{_id}, день списания: {day})"
@@ -447,8 +422,8 @@ async def edit_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         f"• Название: {name}\n"
         f"• Цена: {price}\n"
         f"• День списания: {day}\n\n"
-        f"Что меняем? Напиши: name / price / day\n"
-        f"Или /cancel чтобы отменить."
+        "Что меняем? Напиши: name / price / day\n"
+        "Или /cancel чтобы отменить."
     )
     return EDIT_CHOOSE_FIELD
 
@@ -464,7 +439,7 @@ async def edit_choose_field(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     prompts = {
         "name": "Ок. Введи новое название (например: Netflix).",
-        "price": "Ок. Введи новую цену (пока просто текст, например: 129).",
+        "price": "Ок. Введи новую цену.\nПримеры: 129 | 12.99 EUR | 199,5 RUB",
         "day": "Ок. Введи новый день списания (1–31).",
     }
     await update.message.reply_text(prompts[text])
@@ -492,24 +467,23 @@ async def edit_enter_value(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             return EDIT_ENTER_VALUE
         value = day
     else:
-    if not raw:
-        await update.message.reply_text("Пустое значение нельзя. Введи ещё раз.")
-        return EDIT_ENTER_VALUE
-
-    if field == "price":
-        parsed = parse_price(raw)
-        if not parsed:
-            await update.message.reply_text(
-                "Цена должна быть числом или числом с валютой.\n"
-                "Примеры: 129 | 12.99 EUR | 199,5 RUB\n"
-                "Попробуй ещё раз."
-            )
+        if not raw:
+            await update.message.reply_text("Пустое значение нельзя. Введи ещё раз.")
             return EDIT_ENTER_VALUE
-        amount, currency = parsed
-        value = pack_price(amount, currency)
-    else:
-        value = raw
 
+        if field == "price":
+            parsed = parse_price(raw)
+            if not parsed:
+                await update.message.reply_text(
+                    "Цена должна быть числом или числом с валютой.\n"
+                    "Примеры: 129 | 12.99 EUR | 199,5 RUB\n"
+                    "Попробуй ещё раз."
+                )
+                return EDIT_ENTER_VALUE
+            amount, currency = parsed
+            value = pack_price(amount, currency)
+        else:
+            value = raw
 
     ok = update_subscription_field(user_id, sub_id, field, value)
     if not ok:
@@ -557,7 +531,6 @@ def main() -> None:
         raise RuntimeError("BOT_TOKEN is not set in environment variables.")
 
     init_db()
-
     application = Application.builder().token(BOT_TOKEN).build()
 
     edit_conv = ConversationHandler(
@@ -581,9 +554,9 @@ def main() -> None:
     application.add_handler(edit_conv)
 
     application.add_error_handler(error_handler)
-
     application.run_polling()
 
 
 if __name__ == "__main__":
     main()
+
