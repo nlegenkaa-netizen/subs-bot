@@ -622,7 +622,6 @@ def main() -> None:
 
     init_db()
    application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
-build()
 
     edit_conv = ConversationHandler(
         entry_points=[CommandHandler("edit", edit_start)],
