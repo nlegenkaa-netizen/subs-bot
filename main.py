@@ -92,6 +92,96 @@ def days_word_ru(n: int) -> str:
     return "дней"
 
 
+SUPPORTED_CURRENCIES = {"NOK", "EUR", "USD", "RUB", "SEK", "DKK", "GBP"}
+DEFAULT_CURRENCY = "NOK"
+
+CURRENCY_SYMBOL = {
+    "NOK": "NOK",
+    "EUR": "€",
+    "USD": "$",
+    "RUB": "₽",
+    "SEK": "SEK",
+    "DKK": "DKK",
+    "GBP": "£",
+}
+
+def parse_price(input_str: str) -> tuple[float, str] | None:
+    """
+    Accepts:
+    - "129"
+    - "129 NOK"
+    - "12.99 EUR"
+    - "199,5 rub"
+    Returns (amount, currency) or None
+    """
+    s = (input_str or "").strip()
+    if not s:
+        return None
+
+    parts = s.split()
+    if len(parts) == 1:
+        amount_str = parts[0]
+        currency = DEFAULT_CURRENCY
+    elif len(parts) == 2:
+        amount_str = parts[0]
+        currency = parts[1].upper()
+    else:
+        return None
+
+    if currency not in SUPPORTED_CURRENCIES:
+        return None
+
+    # normalize decimal comma to dot and remove spaces
+    amount_str = amount_str.replace(",", ".").replace(" ", "")
+    try:
+        amount = float(amount_str)
+        if amount <= 0:
+            return None
+    except ValueError:
+        return None
+
+    return amount, currency
+
+
+def format_price(amount: float, currency: str) -> str:
+    """
+    129 -> '129,00 NOK'
+    12.99 EUR -> '€12,99'
+    """
+    symbol = CURRENCY_SYMBOL.get(currency, currency)
+    # format with 2 decimals, comma separator
+    s = f"{amount:,.2f}"
+    # python uses ',' for thousands and '.' for decimals in default locale:
+    # convert: 1,234.50 -> 1 234,50
+    s = s.replace(",", " ").replace(".", ",")
+
+    if currency in {"EUR", "USD", "GBP"}:
+        return f"{symbol}{s}"
+    else:
+        return f"{s} {symbol}"
+
+
+def pack_price(amount: float, currency: str) -> str:
+    """Store canonical in DB as '129.00 NOK' with dot decimal."""
+    return f"{amount:.2f} {currency}"
+
+
+def unpack_price(price_text: str) -> tuple[float, str] | None:
+    """Read from DB '129.00 NOK' -> (129.0, 'NOK')"""
+    if not price_text:
+        return None
+    parts = price_text.strip().split()
+    if len(parts) != 2:
+        return None
+    try:
+        amount = float(parts[0])
+    except ValueError:
+        return None
+    currency = parts[1].upper()
+    return (amount, currency)
+
+
+
 # -----------------------------
 # DB LAYER
 # -----------------------------
