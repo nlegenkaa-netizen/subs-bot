@@ -466,7 +466,6 @@ async def add_flow_price(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await update.message.reply_text(
         "Когда было (или будет) списание?\n"
         "Можно так:\n"
-        "• 5   (день месяца)\n"
         "• 29.12.25  (полная дата)\n"
         "• 29.12.2025",
         reply_markup=main_menu_keyboard(),
