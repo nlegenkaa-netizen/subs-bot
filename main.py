@@ -492,10 +492,24 @@ async def edit_enter_value(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             return EDIT_ENTER_VALUE
         value = day
     else:
-        if not raw:
-            await update.message.reply_text("Пустое значение нельзя. Введи ещё раз.")
+    if not raw:
+        await update.message.reply_text("Пустое значение нельзя. Введи ещё раз.")
+        return EDIT_ENTER_VALUE
+
+    if field == "price":
+        parsed = parse_price(raw)
+        if not parsed:
+            await update.message.reply_text(
+                "Цена должна быть числом или числом с валютой.\n"
+                "Примеры: 129 | 12.99 EUR | 199,5 RUB\n"
+                "Попробуй ещё раз."
+            )
             return EDIT_ENTER_VALUE
+        amount, currency = parsed
+        value = pack_price(amount, currency)
+    else:
         value = raw
+
 
     ok = update_subscription_field(user_id, sub_id, field, value)
     if not ok:
