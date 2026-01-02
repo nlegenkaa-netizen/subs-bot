@@ -9,10 +9,12 @@ from telegram.ext import (
     filters,
 )
 
+# === ENV ===
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-DB_PATH = os.getenv("DB_PATH", "subs.db")
+DB_PATH = os.getenv("DB_PATH", "/data/subs.db")  # важное: в Volume
 
 
+# === DB HELPERS ===
 def init_db() -> None:
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -43,7 +45,7 @@ def add_subscription(user_id: int, name: str, price: str, day: int) -> int:
     return sub_id
 
 
-def list_subscriptions(user_id: int) -> list[tuple]:
+def list_subscriptions(user_id: int):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute(
@@ -68,6 +70,7 @@ def delete_subscription(user_id: int, sub_id: int) -> bool:
     return deleted
 
 
+# === BOT HANDLERS ===
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Привет! Я бот для подписок 👋\n\n"
@@ -93,24 +96,6 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
-    def init_db():
-    conn = sqlite3.connect("/data/subs.db")
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS subscriptions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            name TEXT,
-            price TEXT,
-            day TEXT
-        )
-    """)
-
-    conn.commit()
-    conn.close()
-
-
     name = args[0]
     price = args[1]
 
@@ -119,7 +104,10 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not (1 <= day <= 31):
             raise ValueError
     except ValueError:
-        await update.message.reply_text("День списания должен быть числом от 1 до 31. Пример: /add Netflix 12.99 15")
+        await update.message.reply_text(
+            "День списания должен быть числом от 1 до 31.\n"
+            "Пример: /add Netflix 12.99 15"
+        )
         return
 
     sub_id = add_subscription(user_id, name, price, day)
@@ -139,12 +127,17 @@ async def list_subs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     rows = list_subscriptions(user_id)
 
     if not rows:
-        await update.message.reply_text("Пока нет подписок.\nДобавь первую: /add Netflix 12.99 15")
+        await update.message.reply_text(
+            "Пока нет подписок.\n\n"
+            "Добавь первую так:\n"
+            "/add Netflix 12.99 15"
+        )
         return
 
     lines = ["📋 Твои подписки (последние сверху):\n"]
     for sub_id, name, price, day in rows:
         lines.append(f"ID {sub_id}: {name} — {price} — списание {day}")
+
     lines.append("\nУдалить: /del <id> (например /del 3)")
     await update.message.reply_text("\n".join(lines))
 
@@ -154,7 +147,7 @@ async def delete_sub(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     args = context.args
 
     if len(args) < 1:
-        await update.message.reply_text("Использование: /del <id>  (пример: /del 3)")
+        await update.message.reply_text("Использование: /del <id> (пример: /del 3)")
         return
 
     try:
@@ -171,6 +164,7 @@ async def fallback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Не поняла. Команды: /add, /list, /del")
 
 
+# === ENTRYPOINT ===
 def main() -> None:
     if not BOT_TOKEN:
         raise RuntimeError("Не найден BOT_TOKEN в переменных окружения.")
