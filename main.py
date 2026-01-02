@@ -2,6 +2,7 @@ import os
 import sqlite3
 import logging
 import calendar
+from typing import Optional
 from datetime import date, datetime
 
 from telegram import (
@@ -41,11 +42,6 @@ ADD_NAME, ADD_PRICE, ADD_DATE = range(3)  # add flow states
 # -----------------------------
 # DATE HELPERS
 # -----------------------------
-
-from datetime import datetime, date
-from typing import Optional
-import calendar
-
 MONTHS_RU = {
     1: "января",
     2: "февраля",
@@ -77,7 +73,7 @@ def parse_ru_date(text: str) -> Optional[date]:
     - 29.12.25
     - 29.12.2025
     """
-    text = text.strip()
+    text = (text or "").strip()
     for fmt in ("%d.%m.%y", "%d.%m.%Y"):
         try:
             return datetime.strptime(text, fmt).date()
@@ -98,22 +94,6 @@ def days_word_ru(n: int) -> str:
     return "дней"
 
 
-def parse_ru_date(s: str) -> date | None:
-    """
-    Accepts:
-    - 29.12.25
-    - 29.12.2025
-    """
-    s = (s or "").strip()
-    for fmt in ("%d.%m.%y", "%d.%m.%Y"):
-        try:
-            dt = datetime.strptime(s, fmt).date()
-            return dt
-        except ValueError:
-            continue
-    return None
-
-
 def add_months(d: date, months: int) -> date:
     y = d.year + (d.month - 1 + months) // 12
     m = (d.month - 1 + months) % 12 + 1
@@ -130,32 +110,27 @@ def add_years(d: date, years: int) -> date:
 def next_from_last(last: date, period: str, today: date) -> date:
     """
     Calculates next charge date starting from last charge date.
-    Ensures result >= today.
+    Ensures result > today (важно: если last == today, следующее будет через период).
     period: month | year
     """
     candidate = last
-    if candidate < today:
-        # move forward until >= today
-        while candidate < today:
-            if period == "year":
-                candidate = add_years(candidate, 1)
-            else:
-                candidate = add_months(candidate, 1)
-    else:
-        # last is today or in the future -> keep as is
-        pass
+    while candidate <= today:
+        if period == "year":
+            candidate = add_years(candidate, 1)
+        else:
+            candidate = add_months(candidate, 1)
     return candidate
 
 
 def next_by_day(day_of_month: int, today: date) -> date:
     """
-    Old logic: next charge based on "day of month" from today.
+    Fallback logic if last_charge_date is missing:
+    next charge based on day of month from today.
     """
     y, m = today.year, today.month
     d_this = clamp_day(y, m, day_of_month)
     candidate = date(y, m, d_this)
     if candidate < today:
-        # next month
         if m == 12:
             y, m = y + 1, 1
         else:
@@ -226,7 +201,7 @@ def is_currency_token(token: str) -> bool:
     return normalize_currency_token(token) in SUPPORTED_CURRENCIES
 
 
-def parse_price(input_str: str) -> tuple[float, str] | None:
+def parse_price(input_str: str) -> Optional[tuple[float, str]]:
     s = (input_str or "").strip()
     if not s:
         return None
@@ -268,7 +243,7 @@ def pack_price(amount: float, currency: str) -> str:
     return f"{amount:.2f} {currency}"
 
 
-def unpack_price(price_text: str) -> tuple[float, str] | None:
+def unpack_price(price_text: str) -> Optional[tuple[float, str]]:
     if not price_text:
         return None
     parts = price_text.strip().split()
@@ -288,6 +263,7 @@ def unpack_price(price_text: str) -> tuple[float, str] | None:
 # PERIOD HELPERS
 # -----------------------------
 DEFAULT_PERIOD = "month"  # month | year
+
 
 def period_label(period: str) -> str:
     return "ежемесячно" if period == "month" else "ежегодно"
@@ -328,7 +304,14 @@ def init_db() -> None:
     conn.close()
 
 
-def add_subscription(user_id: int, name: str, price: str, day: int, period: str, last_charge_date: str | None) -> int:
+def add_subscription(
+    user_id: int,
+    name: str,
+    price: str,
+    day: int,
+    period: str,
+    last_charge_date: Optional[str],
+) -> int:
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute(
@@ -363,7 +346,7 @@ def delete_subscription(user_id: int, sub_id: int) -> bool:
     return deleted
 
 
-def get_subscription_by_id(user_id: int, sub_id: int) -> tuple | None:
+def get_subscription_by_id(user_id: int, sub_id: int) -> Optional[tuple]:
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute(
@@ -406,12 +389,12 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
 
 
 def period_keyboard(sub_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [
+    return InlineKeyboardMarkup(
+        [[
             InlineKeyboardButton("🔁 Ежемесячно", callback_data=f"period:{sub_id}:month"),
             InlineKeyboardButton("📅 Ежегодно", callback_data=f"period:{sub_id}:year"),
-        ]
-    ])
+        ]]
+    )
 
 
 # -----------------------------
@@ -434,12 +417,9 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 # ADD FLOW (no commands)
 # -----------------------------
 async def add_flow_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    context.user_data.pop("add_name", None)
-    context.user_data.pop("add_amount", None)
-    context.user_data.pop("add_currency", None)
-    context.user_data.pop("add_day", None)
-    context.user_data.pop("add_last_date", None)
-    context.user_data.pop("add_period", None)
+    # clear add context
+    for k in ("add_name", "add_amount", "add_currency", "add_day", "add_last_date", "add_period"):
+        context.user_data.pop(k, None)
 
     await update.message.reply_text(
         "Ок 🙂 Как называется подписка?\n"
@@ -452,7 +432,7 @@ async def add_flow_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def add_flow_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     name = (update.message.text or "").strip()
     if not name:
-        await update.message.reply_text("Название не должно быть пустым. Напиши ещё раз 🙂")
+        await update.message.reply_text("Название не должно быть пустым. Напиши ещё раз 🙂", reply_markup=main_menu_keyboard())
         return ADD_NAME
 
     context.user_data["add_name"] = name
@@ -475,18 +455,19 @@ async def add_flow_price(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not parsed:
         await update.message.reply_text(
             "Не поняла цену 😕\n"
-            "Примеры: 128.30 | 12,99 евро | 1805,90 кр | 199,5 руб"
+            "Примеры: 128.30 | 12,99 евро | 1805,90 кр | 199,5 руб",
+            reply_markup=main_menu_keyboard(),
         )
         return ADD_PRICE
 
     amount, currency = parsed
-    context.user_data["add_amount"] = amount
+    context.user_data["add_amount"] = float(amount)
     context.user_data["add_currency"] = currency
 
     await update.message.reply_text(
         "Когда было (или будет) списание?\n"
         "Можно так:\n"
-        "• 29.12.25  (полная дата)\n"
+        "• 29.12.25\n"
         "• 29.12.2025",
         reply_markup=main_menu_keyboard(),
     )
@@ -501,19 +482,28 @@ async def add_flow_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     currency = context.user_data.get("add_currency")
 
     raw = (update.message.text or "").strip()
-
     last_dt = parse_ru_date(raw)
-    if last_dt:
-        day = last_dt.day
-        context.user_data["add_day"] = day
-        context.user_data["add_last_date"] = last_dt.isoformat()  # YYYY-MM-DD
-   
 
-    # period default month
+    # strict: only full date accepted
+    if not last_dt:
+        await update.message.reply_text(
+            "Я не поняла дату 😕\n"
+            "Напиши дату в формате:\n"
+            "• 29.12.25\n"
+            "• 29.12.2025",
+            reply_markup=main_menu_keyboard(),
+        )
+        return ADD_DATE
+
+    day = last_dt.day
+    context.user_data["add_day"] = day
+    context.user_data["add_last_date"] = last_dt.isoformat()  # YYYY-MM-DD
+
     period = DEFAULT_PERIOD
     context.user_data["add_period"] = period
 
     price = pack_price(float(amount), currency)
+
     new_id = add_subscription(
         user_id=user_id,
         name=name,
@@ -524,12 +514,7 @@ async def add_flow_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     )
 
     price_view = format_price(float(amount), currency)
-
-    # show summary and period buttons
-    last_date_text = ""
-    if context.user_data["add_last_date"]:
-        d = date.fromisoformat(context.user_data["add_last_date"])
-        last_date_text = f"\n📌 последнее списание: {format_date_ru(d)}"
+    last_date_text = f"\n📌 последнее списание: {format_date_ru(last_dt)}"
 
     await update.message.reply_text(
         "Готово ✅\n"
@@ -544,9 +529,8 @@ async def add_flow_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     return ConversationHandler.END
 
 
-# /add still works (for power users)
+# /add (for power users)
 async def add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # If user uses /add, we keep existing command behavior but also support full date in last token.
     user_id = update.effective_user.id
     args = context.args
 
@@ -557,12 +541,12 @@ async def add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "  пример: /add Netflix 129 15\n"
             "• /add <название> <цена> <валюта> <день>\n"
             "  пример: /add Apple Music 12.99 EUR 5\n"
-            "Можно указать дату: /add Suno 128.30 кр 29.12.25",
+            "Можно указать дату вместо дня:\n"
+            "  пример: /add Suno 128.30 кр 29.12.25",
             reply_markup=main_menu_keyboard(),
         )
         return
 
-    # last token may be day or full date
     last_token = args[-1]
     last_dt = parse_ru_date(last_token)
     if last_dt:
@@ -584,7 +568,6 @@ async def add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
             return
 
-    # Determine if token before last is currency
     if len(args) >= 4 and is_currency_token(args[-2]):
         currency_token = args[-2]
         price_token = args[-3]
@@ -595,7 +578,7 @@ async def add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         price_raw = args[-2]
 
     if not name_parts:
-        await update.message.reply_text("Не вижу название 😕 Пример: /add Apple Music 12.99 EUR 5")
+        await update.message.reply_text("Не вижу название 😕 Пример: /add Apple Music 12.99 EUR 5", reply_markup=main_menu_keyboard())
         return
 
     name = " ".join(name_parts).strip()
@@ -603,20 +586,21 @@ async def add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     parsed = parse_price(price_raw)
     if not parsed:
         await update.message.reply_text(
-            "Цена должна быть числом или числом с валютой.\nПримеры: 128.30 | 12,99 евро | 1805,90 кр | 199,5 руб",
+            "Цена должна быть числом или числом с валютой.\n"
+            "Примеры: 128.30 | 12,99 евро | 1805,90 кр | 199,5 руб",
             reply_markup=main_menu_keyboard(),
         )
         return
 
     amount, currency = parsed
-    price = pack_price(amount, currency)
+    price = pack_price(float(amount), currency)
 
     period = DEFAULT_PERIOD
     new_id = add_subscription(user_id, name, price, int(day), period, last_charge_date)
 
     await update.message.reply_text(
         "Добавлено ✅\n"
-        f"#{new_id} • {name} • {format_price(amount, currency)} • {day}-го\n\n"
+        f"#{new_id} • {name} • {format_price(float(amount), currency)} • {day}-го\n\n"
         "Как часто списывается?",
         reply_markup=period_keyboard(new_id),
     )
@@ -635,7 +619,7 @@ async def list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         pp = unpack_price(price)
         if pp:
             amount, currency = pp
-            price_view = format_price(amount, currency)
+            price_view = format_price(float(amount), currency)
         else:
             price_view = price
 
@@ -701,7 +685,7 @@ async def next_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     pp = unpack_price(price)
     if pp:
         amount, currency = pp
-        price_view = format_price(amount, currency)
+        price_view = format_price(float(amount), currency)
     else:
         price_view = price
 
@@ -790,7 +774,7 @@ async def period_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     pp = unpack_price(price)
     if pp:
         amount, currency = pp
-        price_view = format_price(amount, currency)
+        price_view = format_price(float(amount), currency)
     else:
         price_view = price
 
@@ -819,16 +803,20 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     text = (update.message.text or "").strip()
 
     if text == "➕ Добавить":
-        return await add_flow_start(update, context)
+        await add_flow_start(update, context)
+        return
 
     if text == "📋 Список":
-        return await list_cmd(update, context)
+        await list_cmd(update, context)
+        return
 
     if text == "📅 Ближайшее":
-        return await next_cmd(update, context)
+        await next_cmd(update, context)
+        return
 
     if text == "💸 Итого/мес":
-        return await sum_cmd(update, context)
+        await sum_cmd(update, context)
+        return
 
     if text == "✏️ Редактировать":
         await update.message.reply_text("Напиши: /edit <id>\nПример: /edit 3", reply_markup=main_menu_keyboard())
@@ -839,13 +827,14 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
 
     if text == "ℹ️ Помощь":
-        return await help_cmd(update, context)
+        await help_cmd(update, context)
+        return
 
     await update.message.reply_text("Нажми кнопку снизу 👇", reply_markup=main_menu_keyboard())
 
 
 # -----------------------------
-# /EDIT CONVERSATION (as before)
+# /EDIT CONVERSATION
 # -----------------------------
 async def edit_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = update.effective_user.id
@@ -928,7 +917,7 @@ async def edit_enter_value(update: Update, context: ContextTypes.DEFAULT_TYPE) -
                 await update.message.reply_text("Не поняла цену. Примеры: 129 | 12,99 евро | 199,5 руб", reply_markup=main_menu_keyboard())
                 return EDIT_ENTER_VALUE
             amount, currency = parsed
-            value = pack_price(amount, currency)
+            value = pack_price(float(amount), currency)
         else:
             value = raw
 
@@ -940,8 +929,13 @@ async def edit_enter_value(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    # clear edit context
     context.user_data.pop("edit_id", None)
     context.user_data.pop("edit_field", None)
+    # clear add context too
+    for k in ("add_name", "add_amount", "add_currency", "add_day", "add_last_date", "add_period"):
+        context.user_data.pop(k, None)
+
     await update.message.reply_text("Ок, отменено.", reply_markup=main_menu_keyboard())
     return ConversationHandler.END
 
@@ -964,7 +958,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 async def post_init(application: Application) -> None:
     commands = [
         BotCommand("start", "Старт"),
-        BotCommand("add", "Добавить подписку (если удобно командой)"),
+        BotCommand("add", "Добавить подписку (командой)"),
         BotCommand("list", "Список"),
         BotCommand("next", "Ближайшее"),
         BotCommand("sum", "Итого"),
@@ -986,7 +980,6 @@ def main() -> None:
     init_db()
     application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
-    # Add flow: started by button "➕ Добавить"
     add_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex(r"^➕ Добавить$"), add_flow_start)],
         states={
@@ -1022,7 +1015,7 @@ def main() -> None:
     application.add_handler(add_conv)
     application.add_handler(edit_conv)
 
-    # Button menu router for other texts
+    # Button menu router
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_router))
 
     application.add_error_handler(error_handler)
