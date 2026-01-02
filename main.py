@@ -41,6 +41,11 @@ ADD_NAME, ADD_PRICE, ADD_DATE = range(3)  # add flow states
 # -----------------------------
 # DATE HELPERS
 # -----------------------------
+
+from datetime import datetime, date
+from typing import Optional
+import calendar
+
 MONTHS_RU = {
     1: "января",
     2: "февраля",
@@ -66,9 +71,12 @@ def format_date_ru(dt: date) -> str:
     return f"{dt.day} {MONTHS_RU[dt.month]} {dt.year}"
 
 
-from datetime import datetime, date
-
-def parse_ru_date(text: str) -> date | None:
+def parse_ru_date(text: str) -> Optional[date]:
+    """
+    Принимает ТОЛЬКО полную дату:
+    - 29.12.25
+    - 29.12.2025
+    """
     text = text.strip()
     for fmt in ("%d.%m.%y", "%d.%m.%Y"):
         try:
