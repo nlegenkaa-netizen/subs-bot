@@ -164,9 +164,11 @@ CURRENCY_ALIASES = {
     "р.": "RUB",
     "рублей": "RUB",
     "₽": "RUB",
+
     # EUR
     "евро": "EUR",
     "€": "EUR",
+
     # NOK
     "крона": "NOK",
     "кроны": "NOK",
@@ -174,12 +176,17 @@ CURRENCY_ALIASES = {
     "кр": "NOK",
     "кр.": "NOK",
     "nok": "NOK",
+    "kr": "NOK",      # ✅ ДОБАВЬ
+    "kr.": "NOK",     # ✅ ДОБАВЬ
+    "kroner": "NOK",  # ✅ ДОБАВЬ
+
     # USD
     "доллар": "USD",
     "доллары": "USD",
     "дол": "USD",
     "дол.": "USD",
     "$": "USD",
+
     # GBP
     "фунт": "GBP",
     "фунты": "GBP",
