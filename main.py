@@ -66,6 +66,46 @@ def clamp_day(year: int, month: int, wanted_day: int) -> int:
 def format_date_ru(dt: date) -> str:
     return f"{dt.day} {MONTHS_RU[dt.month]} {dt.year}"
 
+import re
+
+CURRENCY_ALIASES = {
+    "nok": "NOK",
+    "kr": "NOK",
+    "кр": "NOK",
+    "eur": "EUR",
+    "€": "EUR",
+    "usd": "USD",
+    "$": "USD",
+    "rub": "RUB",
+    "руб": "RUB",
+    "₽": "RUB",
+}
+
+def parse_price(text: str):
+    """
+    Находит первое число (128.30 / 130,17 / 1805,90)
+    и валюту (NOK/EUR/USD/RUB), если есть.
+    """
+    if not text:
+        return None, None
+
+    t = text.strip().lower()
+
+    # ищем первое число
+    m = re.search(r"(\d+(?:[.,]\d{1,2})?)", t)
+    if not m:
+        return None, None
+
+    amount = m.group(1).replace(",", ".")
+
+    currency = None
+    for k, v in CURRENCY_ALIASES.items():
+        if k in t:
+            currency = v
+            break
+
+    return amount, currency
+
 
 def parse_ru_date(text: str) -> Optional[date]:
     """
