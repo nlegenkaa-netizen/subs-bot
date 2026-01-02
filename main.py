@@ -596,11 +596,30 @@ async def add_flow_price(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 async def add_flow_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = update.effective_user.id
 
+    raw = (update.message.text or "").strip()
+
+    # если имя ещё не сохранено — пробуем взять текст до первого числа
+    if not context.user_data.get("add_name"):
+        import re
+        m = re.search(r"^(.*?)(?=\s*\d)", raw)
+        if m:
+            guessed_name = m.group(1).strip(" -|,")
+            if guessed_name:
+                context.user_data["add_name"] = guessed_name
+
+    # обновляем локальные переменные после возможного сохранения имени
     name = context.user_data.get("add_name")
     amount = context.user_data.get("add_amount")
     currency = context.user_data.get("add_currency")
 
-    raw = (update.message.text or "").strip()
+    # страховка, чтобы не падало
+    if not name or amount is None:
+        await update.message.reply_text(
+            "Кажется, я потерял данные подписки 😕\nНажми ➕ Добавить и попробуем ещё раз",
+            reply_markup=main_menu_keyboard(),
+        )
+        return ConversationHandler.END
+
     last_dt = parse_ru_date(raw)
 
     # strict: only full date accepted
