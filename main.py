@@ -755,6 +755,15 @@ def delete_confirm_keyboard(sub_id: int) -> InlineKeyboardMarkup:
         InlineKeyboardButton("❌ Отмена", callback_data=f"delete_cancel:{sub_id}"),
     ]])
 
+def duplicate_keyboard(existing_id: int, new_data: str) -> InlineKeyboardMarkup:
+    """Клавиатура для обработки дубликата подписки"""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("💰 Записать платёж", callback_data=f"dup_payment:{existing_id}:{new_data}")],
+        [InlineKeyboardButton("🔄 Исправить данные", callback_data=f"dup_update:{existing_id}:{new_data}")],
+        [InlineKeyboardButton("➕ Создать новую", callback_data=f"dup_create:{new_data}")],
+        [InlineKeyboardButton("❌ Отмена", callback_data="dup_cancel")]
+    ])
+
 
 async def duplicate_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработка выбора при дубликате"""
