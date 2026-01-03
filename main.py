@@ -1152,6 +1152,21 @@ async def add_flow_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         category=category,
     )
 
+        new_id = add_subscription(
+        user_id=user_id,
+        name=name,
+        price=price,
+        day=last_dt.day,
+        period=suggested_period,
+        last_charge_date=last_dt.isoformat(),
+        category=category,
+    )
+
+    # Записываем первый платёж в историю
+    add_payment(user_id, new_id, price, last_dt.isoformat())
+
+    price_view = format_price(amount, currency)
+    
     price_view = format_price(amount, currency)
     cat_label = CATEGORIES.get(category, "📦 Другое")
 
