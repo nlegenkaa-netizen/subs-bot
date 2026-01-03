@@ -2453,7 +2453,7 @@ async def post_init(application: Application) -> None:
         )
         logger.info(f"Reminders scheduled at {REMINDER_HOUR:02d}:{REMINDER_MINUTE:02d} UTC")
 
-
+    
 # -----------------------------
 # MAIN
 # -----------------------------
@@ -2486,7 +2486,7 @@ def main() -> None:
         allow_reentry=True,
     )
 
-    application.add_handler(CommandHandler("start", start))
+      application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_cmd))
     application.add_handler(CommandHandler("add", add_cmd))
     application.add_handler(CommandHandler("list", list_cmd))
