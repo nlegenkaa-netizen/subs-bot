@@ -916,6 +916,25 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def debug_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT id, subscription_id, amount, paid_at FROM payment_history WHERE user_id = ? ORDER BY paid_at", (user_id,))
+    rows = cur.fetchall()
+    conn.close()
+    
+    if not rows:
+        await update.message.reply_text("Нет платежей в истории")
+        return
+    
+    lines = ["🔍 *Debug: payment_history*\n"]
+    for _id, sub_id, amount, paid_at in rows:
+        lines.append(f"id={_id}, sub={sub_id}, amount={amount}, paid_at={paid_at}")
+    
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
 # -----------------------------
 # ADD FLOW WITH DUPLICATE CHECK
 # -----------------------------
