@@ -1255,6 +1255,10 @@ async def add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     price = pack_price(amount, currency)
     new_id = add_subscription(user_id, name, price, day, DEFAULT_PERIOD, last_charge_date, category)
 
+    # Записываем первый платёж в историю (если есть дата)
+    if last_charge_date:
+        add_payment(user_id, new_id, price, last_charge_date)
+    
     await update.message.reply_text(
         f"Добавлено ✅\n\n*#{new_id} • {name}*\n💰 {format_price(amount, currency)}\n\nПериод?",
         parse_mode="Markdown",
