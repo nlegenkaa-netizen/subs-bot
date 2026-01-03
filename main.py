@@ -2429,6 +2429,7 @@ def main() -> None:
     application.add_handler(CommandHandler("stats", stats_cmd))
     application.add_handler(CommandHandler("settings", settings_cmd))
     application.add_handler(CommandHandler("cancel", cancel))
+    application.add_handler(CommandHandler("debug", debug_cmd))
 
     application.add_handler(CallbackQueryHandler(period_callback, pattern=r"^period:\d+:(month|year)$"))
     application.add_handler(CallbackQueryHandler(category_callback, pattern=r"^category:\d+:\w+$"))
