@@ -170,8 +170,13 @@ def add_years(d: date, years: int) -> date:
 
 
 def next_from_last(last: date, period: str, today: date) -> date:
+    """
+    Calculates next charge date starting from last charge date.
+    If next charge is today, returns today.
+    If next charge is in the past, calculates next future date.
+    """
     candidate = last
-    while candidate <= today:
+    while candidate < today:  # Изменено <= на <
         if period == "year":
             candidate = add_years(candidate, 1)
         else:
