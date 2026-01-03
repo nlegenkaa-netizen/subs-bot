@@ -1728,6 +1728,42 @@ async def duplicate_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     data = query.data or ""
     user_id = query.from_user.id
+
+    if data.startswith("dup_payment:"):
+        # Записать платёж в историю
+        try:
+            parts = data.split(":", 2)
+            existing_id = int(parts[1])
+            new_data = parts[2]
+            
+            data_parts = new_data.split("|")
+            if len(data_parts) >= 4:
+                amount = float(data_parts[1])
+                currency = data_parts[2]
+                last_date = data_parts[3]
+                
+                new_price = pack_price(amount, currency)
+                
+                # Записываем платёж в историю
+                add_payment(user_id, existing_id, new_price, last_date)
+                
+                # Обновляем дату и цену
+                update_subscription_field(user_id, existing_id, "last_charge_date", last_date)
+                update_subscription_field(user_id, existing_id, "price", new_price)
+                
+                await query.edit_message_text(
+                    f"✅ Платёж записан!\n"
+                    f"💰 Сумма: {format_price(amount, currency)}\n"
+                    f"📅 Дата: {last_date}"
+                )
+                return
+        except Exception as e:
+            logger.error(f"dup_payment error: {e}")
+            await query.edit_message_text("Ошибка при записи платежа 😕")
+            return
+
+    elif data.startswith("dup_update:"):
+        # ... существующий код ...
     
     if data.startswith("dup_update:"):
         # Обновить дату существующей
