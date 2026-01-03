@@ -449,6 +449,18 @@ def add_subscription(
     conn.close()
     return int(new_id)
 
+def find_duplicate_subscription(user_id: int, name: str):
+    """Ищет подписку с таким же названием (без учёта регистра)"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute(
+        "SELECT id, name, price, period FROM subscriptions WHERE user_id = ? AND LOWER(name) = LOWER(?)",
+        (user_id, name)
+    )
+    row = c.fetchone()
+    conn.close()
+    return row
+
 
 def list_subscriptions(user_id: int, include_paused: bool = True) -> list[tuple]:
     conn = sqlite3.connect(DB_PATH)
