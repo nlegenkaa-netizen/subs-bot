@@ -1008,6 +1008,9 @@ async def add_flow_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             category=category,
         )
 
+                # Записываем первый платёж в историю
+        add_payment(user_id, new_id, price, last_dt.isoformat())
+
         price_view = format_price(amount, currency)
         cat_label = CATEGORIES.get(category, "📦 Другое")
 
