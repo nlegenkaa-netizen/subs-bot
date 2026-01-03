@@ -449,18 +449,6 @@ def add_subscription(
     conn.close()
     return int(new_id)
 
-def find_duplicate_subscription(user_id: int, name: str):
-    """Ищет подписку с таким же названием (без учёта регистра)"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute(
-        "SELECT id, name, price, period FROM subscriptions WHERE user_id = ? AND LOWER(name) = LOWER(?)",
-        (user_id, name)
-    )
-    row = c.fetchone()
-    conn.close()
-    return row
-
 
 def list_subscriptions(user_id: int, include_paused: bool = True) -> list[tuple]:
     conn = sqlite3.connect(DB_PATH)
@@ -654,7 +642,6 @@ def get_yearly_stats(user_id: int, year: int) -> dict:
     start_date = f"{year}-01-01"
     end_date = f"{year}-12-31"
     
-    # Платежи по месяцам
     cur.execute(
         """SELECT strftime('%m', paid_at) as month, amount
            FROM payment_history
@@ -664,7 +651,6 @@ def get_yearly_stats(user_id: int, year: int) -> dict:
     )
     payments = cur.fetchall()
     
-    # Группируем по месяцам и валютам
     monthly: dict[int, dict[str, float]] = {}
     total_by_currency: dict[str, float] = {}
     
@@ -680,7 +666,6 @@ def get_yearly_stats(user_id: int, year: int) -> dict:
         monthly[month][curr] = monthly[month].get(curr, 0) + amt
         total_by_currency[curr] = total_by_currency.get(curr, 0) + amt
     
-    # Платежи по подпискам
     cur.execute(
         """SELECT s.name, SUM(
                CAST(SUBSTR(ph.amount, 1, INSTR(ph.amount, ' ') - 1) AS REAL)
@@ -767,6 +752,7 @@ def delete_confirm_keyboard(sub_id: int) -> InlineKeyboardMarkup:
         InlineKeyboardButton("❌ Отмена", callback_data=f"delete_cancel:{sub_id}"),
     ]])
 
+
 def duplicate_keyboard(existing_id: int, new_data: str) -> InlineKeyboardMarkup:
     """Клавиатура для обработки дубликата подписки"""
     return InlineKeyboardMarkup([
@@ -775,136 +761,6 @@ def duplicate_keyboard(existing_id: int, new_data: str) -> InlineKeyboardMarkup:
         [InlineKeyboardButton("➕ Создать новую", callback_data=f"dup_create:{new_data}")],
         [InlineKeyboardButton("❌ Отмена", callback_data="dup_cancel")]
     ])
-
-
-async def duplicate_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Обработка выбора при дубликате"""
-    query = update.callback_query
-    await query.answer()
-    
-    data = query.data or ""
-    user_id = query.from_user.id
-    
-    if data.startswith("dup_payment:"):
-        # 💰 Записать платёж — добавляет в историю + обновляет дату
-        try:
-            parts = data.split(":", 2)
-            existing_id = int(parts[1])
-            new_data = parts[2]
-            
-            data_parts = new_data.split("|")
-            if len(data_parts) >= 4:
-                name = data_parts[0]
-                amount = float(data_parts[1])
-                currency = data_parts[2]
-                last_date = data_parts[3]
-                
-                if last_date:
-                    new_price = pack_price(amount, currency)
-                    
-                    # Записываем платёж в историю
-                    add_payment(user_id, existing_id, new_price, last_date)
-                    
-                    # Обновляем дату и цену
-                    update_subscription_field(user_id, existing_id, "last_charge_date", last_date)
-                    update_subscription_field(user_id, existing_id, "price", new_price)
-                    
-                    try:
-                        d = date.fromisoformat(last_date)
-                        date_str = format_date_ru(d)
-                    except:
-                        date_str = last_date
-                    
-                    price_view = format_price(amount, currency)
-                    
-                    await query.edit_message_text(
-                        f"✅ Платёж записан!\n\n"
-                        f"*{name}*\n"
-                        f"💰 {price_view}\n"
-                        f"📅 {date_str}",
-                        parse_mode="Markdown",
-                    )
-                    return
-        except Exception as e:
-            logger.error(f"dup_payment error: {e}")
-        
-        await query.edit_message_text("Ошибка 😕")
-    
-    elif data.startswith("dup_update:"):
-        # 🔄 Исправить данные — только обновляет, НЕ записывает в историю
-        try:
-            parts = data.split(":", 2)
-            existing_id = int(parts[1])
-            new_data = parts[2]
-            
-            data_parts = new_data.split("|")
-            if len(data_parts) >= 4:
-                amount = float(data_parts[1])
-                currency = data_parts[2]
-                last_date = data_parts[3]
-                
-                if last_date:
-                    update_subscription_field(user_id, existing_id, "last_charge_date", last_date)
-                
-                if amount and currency:
-                    new_price = pack_price(amount, currency)
-                    update_subscription_field(user_id, existing_id, "price", new_price)
-                
-                await query.edit_message_text(
-                    f"✅ Данные исправлены\n\n"
-                    f"Подписка #{existing_id} обновлена",
-                )
-                return
-        except Exception as e:
-            logger.error(f"dup_update error: {e}")
-        
-        await query.edit_message_text("Ошибка 😕")
-    
-    elif data.startswith("dup_create:"):
-        # ➕ Создать новую — отдельная подписка
-        try:
-            new_data = data.split(":", 1)[1]
-            data_parts = new_data.split("|")
-            
-            if len(data_parts) >= 5:
-                name = data_parts[0]
-                amount = float(data_parts[1])
-                currency = data_parts[2]
-                last_date = data_parts[3]
-                category = data_parts[4]
-                day = int(data_parts[5]) if len(data_parts) > 5 else date.fromisoformat(last_date).day
-                
-                price = pack_price(amount, currency)
-                new_id = add_subscription(
-                    user_id=user_id,
-                    name=name,
-                    price=price,
-                    day=day,
-                    period=DEFAULT_PERIOD,
-                    last_charge_date=last_date if last_date else None,
-                    category=category,
-                )
-                
-                price_view = format_price(amount, currency)
-                
-                await query.edit_message_text(
-                    f"Добавлено ✅\n\n*#{new_id} • {name}*\n💰 {price_view}",
-                    parse_mode="Markdown",
-                )
-                
-                await query.message.reply_text(
-                    "Период?",
-                    reply_markup=period_keyboard(new_id),
-                )
-                return
-        except Exception as e:
-            logger.error(f"dup_create error: {e}")
-        
-        await query.edit_message_text("Ошибка 😕")
-    
-    elif data == "dup_cancel":
-        await query.edit_message_text("Отменено 👌")
-
 
 
 def build_delete_list_keyboard(rows: list[tuple]) -> InlineKeyboardMarkup:
@@ -1111,7 +967,6 @@ async def add_flow_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             pp = unpack_price(dup_price)
             dup_price_view = format_price(pp[0], pp[1]) if pp else dup_price
             
-            # Сохраняем данные для callback
             new_data = f"{name}|{amount}|{currency}|{last_dt.isoformat()}|{category}"
             
             await update.message.reply_text(
@@ -1165,7 +1020,6 @@ async def add_flow_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     
     duplicate = find_duplicate_subscription(user_id, name_to_check)
     if duplicate:
-        # Сохраняем имя и ждём остальные данные
         context.user_data["add_name"] = name_to_check
         context.user_data["add_duplicate"] = duplicate
         
@@ -1258,7 +1112,6 @@ async def add_flow_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
             reply_markup=duplicate_keyboard(dup_id, new_data),
         )
         
-        # Очищаем
         for k in ("add_name", "add_amount", "add_currency", "add_category", "add_duplicate", "add_suggested_period"):
             context.user_data.pop(k, None)
         
@@ -1362,7 +1215,7 @@ async def add_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Проверка дубликата
     duplicate = find_duplicate_subscription(user_id, name)
     if duplicate:
-        dup_id, dup_name, dup_price, _, dup_period, _, _, _ = duplicate
+        dup_id, dup_name, dup_price, dup_day, dup_period, dup_last, dup_cat, dup_paused = duplicate
         pp = unpack_price(dup_price)
         dup_price_view = format_price(pp[0], pp[1]) if pp else dup_price
         
@@ -1618,20 +1471,17 @@ async def show_yearly_stats(message, user_id: int, year: int) -> None:
     
     lines = [f"📊 *Статистика за {year}*\n"]
     
-    # По месяцам
     lines.append("*По месяцам:*")
     for month in range(1, 13):
         if month in stats["monthly"]:
             amounts = [format_price(amt, curr) for curr, amt in sorted(stats["monthly"][month].items())]
             lines.append(f"  {MONTHS_RU_SHORT[month]}: {', '.join(amounts)}")
     
-    # Итого за год
     if stats["total_by_currency"]:
         lines.append("\n*Итого за год:*")
         for curr, amt in sorted(stats["total_by_currency"].items()):
             lines.append(f"  • {format_price(amt, curr)}")
     
-    # По подпискам
     if stats["by_subscription"]:
         lines.append("\n*По подпискам:*")
         for name, total, currency, count in stats["by_subscription"][:10]:
@@ -1730,7 +1580,52 @@ async def duplicate_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_id = query.from_user.id
 
     if data.startswith("dup_payment:"):
-        # Записать платёж в историю
+        # 💰 Записать платёж — добавляет в историю + обновляет дату
+        try:
+            parts = data.split(":", 2)
+            existing_id = int(parts[1])
+            new_data = parts[2]
+            
+            data_parts = new_data.split("|")
+            if len(data_parts) >= 4:
+                name = data_parts[0]
+                amount = float(data_parts[1])
+                currency = data_parts[2]
+                last_date = data_parts[3]
+                
+                if last_date:
+                    new_price = pack_price(amount, currency)
+                    
+                    # Записываем платёж в историю
+                    add_payment(user_id, existing_id, new_price, last_date)
+                    
+                    # Обновляем дату и цену
+                    update_subscription_field(user_id, existing_id, "last_charge_date", last_date)
+                    update_subscription_field(user_id, existing_id, "price", new_price)
+                    
+                    try:
+                        d = date.fromisoformat(last_date)
+                        date_str = format_date_ru(d)
+                    except:
+                        date_str = last_date
+                    
+                    price_view = format_price(amount, currency)
+                    
+                    await query.edit_message_text(
+                        f"✅ Платёж записан!\n\n"
+                        f"*{name}*\n"
+                        f"💰 {price_view}\n"
+                        f"📅 {date_str}",
+                        parse_mode="Markdown",
+                    )
+                    return
+        except Exception as e:
+            logger.error(f"dup_payment error: {e}")
+        
+        await query.edit_message_text("Ошибка 😕")
+
+    elif data.startswith("dup_update:"):
+        # 🔄 Исправить данные — только обновляет, НЕ записывает в историю
         try:
             parts = data.split(":", 2)
             existing_id = int(parts[1])
@@ -1742,62 +1637,25 @@ async def duplicate_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 currency = data_parts[2]
                 last_date = data_parts[3]
                 
-                new_price = pack_price(amount, currency)
+                if last_date:
+                    update_subscription_field(user_id, existing_id, "last_charge_date", last_date)
                 
-                # Записываем платёж в историю
-                add_payment(user_id, existing_id, new_price, last_date)
-                
-                # Обновляем дату и цену
-                update_subscription_field(user_id, existing_id, "last_charge_date", last_date)
-                update_subscription_field(user_id, existing_id, "price", new_price)
+                if amount and currency:
+                    new_price = pack_price(amount, currency)
+                    update_subscription_field(user_id, existing_id, "price", new_price)
                 
                 await query.edit_message_text(
-                    f"✅ Платёж записан!\n"
-                    f"💰 Сумма: {format_price(amount, currency)}\n"
-                    f"📅 Дата: {last_date}"
+                    f"✅ Данные исправлены\n\n"
+                    f"Подписка #{existing_id} обновлена",
                 )
                 return
         except Exception as e:
-            logger.error(f"dup_payment error: {e}")
-            await query.edit_message_text("Ошибка при записи платежа 😕")
-            return
-
-    elif data.startswith("dup_update:"):
-        # ... существующий код ...
-    
-    if data.startswith("dup_update:"):
-        # Обновить дату существующей
-        try:
-            parts = data.split(":", 2)
-            existing_id = int(parts[1])
-            new_data = parts[2]
-            
-            # Парсим данные
-            data_parts = new_data.split("|")
-            if len(data_parts) >= 4:
-                last_date = data_parts[3]
-                if last_date:
-                    update_subscription_field(user_id, existing_id, "last_charge_date", last_date)
-                    
-                    # Также обновляем цену если передана
-                    if len(data_parts) >= 3:
-                        amount = float(data_parts[1])
-                        currency = data_parts[2]
-                        new_price = pack_price(amount, currency)
-                        update_subscription_field(user_id, existing_id, "price", new_price)
-                    
-                    await query.edit_message_text(
-                        f"✅ Подписка #{existing_id} обновлена\n\n"
-                        f"📌 Новая дата: {last_date}",
-                    )
-                    return
-        except Exception as e:
             logger.error(f"dup_update error: {e}")
         
-        await query.edit_message_text("Ошибка при обновлении 😕")
-    
+        await query.edit_message_text("Ошибка 😕")
+
     elif data.startswith("dup_create:"):
-        # Создать новую
+        # ➕ Создать новую — отдельная подписка
         try:
             new_data = data.split(":", 1)[1]
             data_parts = new_data.split("|")
@@ -1828,7 +1686,6 @@ async def duplicate_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     parse_mode="Markdown",
                 )
                 
-                # Отправляем выбор периода отдельным сообщением
                 await query.message.reply_text(
                     "Период?",
                     reply_markup=period_keyboard(new_id),
@@ -1837,8 +1694,8 @@ async def duplicate_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except Exception as e:
             logger.error(f"dup_create error: {e}")
         
-        await query.edit_message_text("Ошибка при создании 😕")
-    
+        await query.edit_message_text("Ошибка 😕")
+
     elif data == "dup_cancel":
         await query.edit_message_text("Отменено 👌")
 
@@ -2373,7 +2230,7 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             # Проверка дубликата
             duplicate = find_duplicate_subscription(user_id, name)
             if duplicate:
-                dup_id, dup_name, dup_price, _, dup_period, _, _, _ = duplicate
+                dup_id, dup_name, dup_price, dup_day, dup_period, dup_last, dup_cat, dup_paused = duplicate
                 pp = unpack_price(dup_price)
                 dup_price_view = format_price(pp[0], pp[1]) if pp else dup_price
                 
@@ -2510,7 +2367,7 @@ async def post_init(application: Application) -> None:
         )
         logger.info(f"Reminders scheduled at {REMINDER_HOUR:02d}:{REMINDER_MINUTE:02d} UTC")
 
-    
+
 # -----------------------------
 # MAIN
 # -----------------------------
@@ -2543,7 +2400,7 @@ def main() -> None:
         allow_reentry=True,
     )
 
-      application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_cmd))
     application.add_handler(CommandHandler("add", add_cmd))
     application.add_handler(CommandHandler("list", list_cmd))
@@ -2575,4 +2432,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
