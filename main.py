@@ -756,13 +756,134 @@ def delete_confirm_keyboard(sub_id: int) -> InlineKeyboardMarkup:
     ]])
 
 
-def duplicate_keyboard(existing_id: int, new_data: str) -> InlineKeyboardMarkup:
-    """Клавиатура при обнаружении дубликата"""
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Обновить дату", callback_data=f"dup_update:{existing_id}:{new_data}")],
-        [InlineKeyboardButton("➕ Создать новую", callback_data=f"dup_create:{new_data}")],
-        [InlineKeyboardButton("❌ Отмена", callback_data="dup_cancel")],
-    ])
+async def duplicate_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработка выбора при дубликате"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data or ""
+    user_id = query.from_user.id
+    
+    if data.startswith("dup_payment:"):
+        # 💰 Записать платёж — добавляет в историю + обновляет дату
+        try:
+            parts = data.split(":", 2)
+            existing_id = int(parts[1])
+            new_data = parts[2]
+            
+            data_parts = new_data.split("|")
+            if len(data_parts) >= 4:
+                name = data_parts[0]
+                amount = float(data_parts[1])
+                currency = data_parts[2]
+                last_date = data_parts[3]
+                
+                if last_date:
+                    new_price = pack_price(amount, currency)
+                    
+                    # Записываем платёж в историю
+                    add_payment(user_id, existing_id, new_price, last_date)
+                    
+                    # Обновляем дату и цену
+                    update_subscription_field(user_id, existing_id, "last_charge_date", last_date)
+                    update_subscription_field(user_id, existing_id, "price", new_price)
+                    
+                    try:
+                        d = date.fromisoformat(last_date)
+                        date_str = format_date_ru(d)
+                    except:
+                        date_str = last_date
+                    
+                    price_view = format_price(amount, currency)
+                    
+                    await query.edit_message_text(
+                        f"✅ Платёж записан!\n\n"
+                        f"*{name}*\n"
+                        f"💰 {price_view}\n"
+                        f"📅 {date_str}",
+                        parse_mode="Markdown",
+                    )
+                    return
+        except Exception as e:
+            logger.error(f"dup_payment error: {e}")
+        
+        await query.edit_message_text("Ошибка 😕")
+    
+    elif data.startswith("dup_update:"):
+        # 🔄 Исправить данные — только обновляет, НЕ записывает в историю
+        try:
+            parts = data.split(":", 2)
+            existing_id = int(parts[1])
+            new_data = parts[2]
+            
+            data_parts = new_data.split("|")
+            if len(data_parts) >= 4:
+                amount = float(data_parts[1])
+                currency = data_parts[2]
+                last_date = data_parts[3]
+                
+                if last_date:
+                    update_subscription_field(user_id, existing_id, "last_charge_date", last_date)
+                
+                if amount and currency:
+                    new_price = pack_price(amount, currency)
+                    update_subscription_field(user_id, existing_id, "price", new_price)
+                
+                await query.edit_message_text(
+                    f"✅ Данные исправлены\n\n"
+                    f"Подписка #{existing_id} обновлена",
+                )
+                return
+        except Exception as e:
+            logger.error(f"dup_update error: {e}")
+        
+        await query.edit_message_text("Ошибка 😕")
+    
+    elif data.startswith("dup_create:"):
+        # ➕ Создать новую — отдельная подписка
+        try:
+            new_data = data.split(":", 1)[1]
+            data_parts = new_data.split("|")
+            
+            if len(data_parts) >= 5:
+                name = data_parts[0]
+                amount = float(data_parts[1])
+                currency = data_parts[2]
+                last_date = data_parts[3]
+                category = data_parts[4]
+                day = int(data_parts[5]) if len(data_parts) > 5 else date.fromisoformat(last_date).day
+                
+                price = pack_price(amount, currency)
+                new_id = add_subscription(
+                    user_id=user_id,
+                    name=name,
+                    price=price,
+                    day=day,
+                    period=DEFAULT_PERIOD,
+                    last_charge_date=last_date if last_date else None,
+                    category=category,
+                )
+                
+                price_view = format_price(amount, currency)
+                
+                await query.edit_message_text(
+                    f"Добавлено ✅\n\n*#{new_id} • {name}*\n💰 {price_view}",
+                    parse_mode="Markdown",
+                )
+                
+                await query.message.reply_text(
+                    "Период?",
+                    reply_markup=period_keyboard(new_id),
+                )
+                return
+        except Exception as e:
+            logger.error(f"dup_create error: {e}")
+        
+        await query.edit_message_text("Ошибка 😕")
+    
+    elif data == "dup_cancel":
+        await query.edit_message_text("Отменено 👌")
+
 
 
 def build_delete_list_keyboard(rows: list[tuple]) -> InlineKeyboardMarkup:
@@ -2379,7 +2500,7 @@ def main() -> None:
     application.add_handler(CallbackQueryHandler(period_callback, pattern=r"^period:\d+:(month|year)$"))
     application.add_handler(CallbackQueryHandler(category_callback, pattern=r"^category:\d+:\w+$"))
     application.add_handler(CallbackQueryHandler(delete_callback, pattern=r"^delete_(ask|confirm|cancel):\d+$"))
-    application.add_handler(CallbackQueryHandler(duplicate_callback, pattern=r"^dup_(update|create|cancel)"))
+    application.add_handler(CallbackQueryHandler(duplicate_callback, pattern=r"^dup_(payment|update|create|cancel)"))
     application.add_handler(CallbackQueryHandler(edit_callback, pattern=r"^(edit_select|edit_field|edit_cancel|toggle_pause|mark_paid|sub_history)"))
     application.add_handler(CallbackQueryHandler(settings_callback, pattern=r"^(settings:|set_reminder_days:)"))
     application.add_handler(CallbackQueryHandler(stats_callback, pattern=r"^stats_year:\d+$"))
