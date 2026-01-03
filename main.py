@@ -1719,6 +1719,9 @@ async def duplicate_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                     last_charge_date=last_date if last_date else None,
                     category=category,
                 )
+
+                # Записываем первый платёж в историю
+            add_payment(user_id, new_id, price, last_dt.isoformat())
                 
                 price_view = format_price(amount, currency)
                 
