@@ -1409,6 +1409,52 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 # ─────────────────────────────────────────────────────────────
 # MAIN
 # ─────────────────────────────────────────────────────────────
+
+
+# ─────────────────────────────────────────────────────────────
+# REMINDERS
+# ─────────────────────────────────────────────────────────────
+async def send_reminders(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Отправляет напоминания о предстоящих платежах"""
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    
+    today = datetime.now().date()
+    tomorrow = today + timedelta(days=1)
+    in_3_days = today + timedelta(days=3)
+    
+    c.execute("""
+        SELECT user_id, name, price, next_date 
+        FROM subscriptions 
+        WHERE is_paused = 0 
+        AND (next_date = ? OR next_date = ?)
+    """, (tomorrow.strftime("%Y-%m-%d"), in_3_days.strftime("%Y-%m-%d")))
+    
+    rows = c.fetchall()
+    conn.close()
+    
+    for user_id, name, price_str, next_date in rows:
+        try:
+            amount, currency = unpack_price(price_str)
+            price_view = format_price(amount, currency)
+            dt = datetime.strptime(next_date, "%Y-%m-%d").date()
+            days_left = (dt - today).days
+            
+            if days_left == 1:
+                when = "завтра"
+            else:
+                when = f"через {days_left} дня"
+            
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f"⏰ *Напоминание*\n\n{when} оплата *{name}*\n💰 {price_view}",
+                parse_mode="Markdown"
+            )
+            logger.info(f"Reminder sent to {user_id} for {name}")
+        except Exception as e:
+            logger.error(f"Failed to send reminder: {e}")
+
+
 def main() -> None:
     if not BOT_TOKEN:
         logger.error("BOT_TOKEN not set!")
@@ -1417,6 +1463,18 @@ def main() -> None:
     init_db()
 
     application = Application.builder().token(BOT_TOKEN).build()
+
+    # Запускаем напоминания каждый день в 9:00
+    job_queue = application.job_queue
+    if job_queue:
+        from datetime import time as dt_time
+        job_queue.run_daily(
+            send_reminders,
+            time=dt_time(hour=REMINDER_HOUR, minute=REMINDER_MINUTE),
+            name="daily_reminders"
+        )
+        logger.info(f"Reminders scheduled at {REMINDER_HOUR:02d}:{REMINDER_MINUTE:02d}")
+
 
     # Conversation handler для добавления
     add_conv = ConversationHandler(
