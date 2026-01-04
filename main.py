@@ -201,7 +201,7 @@ def init_db():
         )
     """)
 
-    # Миграции
+    # Миграции для subscriptions
     for col, default in [
         ("period", "'month'"), ("last_charge_date", "NULL"),
         ("category", "'📦 Другое'"), ("is_paused", "0")
@@ -211,7 +211,7 @@ def init_db():
         except sqlite3.OperationalError:
             pass
 
-    # Миграция user_settings
+    # Миграции для user_settings
     for col, default in [
         ("reminder_enabled", "1"), ("reminder_days", "'1,3'"), ("reminder_hour", "9")
     ]:
@@ -255,10 +255,15 @@ def get_user_settings(user_id: int) -> dict:
 def save_user_setting(user_id: int, field: str, value):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("""
-        INSERT INTO user_settings (user_id, {}) VALUES (?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET {} = ?
-    """.format(field, field), (user_id, value, value))
+    # Сначала проверяем есть ли запись
+    c.execute("SELECT user_id FROM user_settings WHERE user_id = ?", (user_id,))
+    exists = c.fetchone()
+    
+    if exists:
+        c.execute(f"UPDATE user_settings SET {field} = ? WHERE user_id = ?", (value, user_id))
+    else:
+        c.execute(f"INSERT INTO user_settings (user_id, {field}) VALUES (?, ?)", (user_id, value))
+    
     conn.commit()
     conn.close()
 
@@ -474,11 +479,14 @@ def reminder_hour_keyboard() -> InlineKeyboardMarkup:
 
 
 def period_keyboard(sub_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[
-        InlineKeyboardButton("Месяц", callback_data=f"period:{sub_id}:month"),
-        InlineKeyboardButton("Год", callback_data=f"period:{sub_id}:year"),
-        InlineKeyboardButton("Неделя", callback_data=f"period:{sub_id}:week"),
-    ]])
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📅 Месяц", callback_data=f"period:{sub_id}:month"),
+            InlineKeyboardButton("📅 Год", callback_data=f"period:{sub_id}:year"),
+            InlineKeyboardButton("📅 Неделя", callback_data=f"period:{sub_id}:week"),
+        ],
+        [InlineKeyboardButton("✅ Готово", callback_data=f"period_done:{sub_id}")]
+    ])
 
 
 def delete_confirm_keyboard(sub_id: int) -> InlineKeyboardMarkup:
@@ -491,7 +499,7 @@ def delete_confirm_keyboard(sub_id: int) -> InlineKeyboardMarkup:
 def duplicate_keyboard(existing_id: int, new_data: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("💰 Записать платёж", callback_data=f"dup_payment:{existing_id}:{new_data}")],
-        [InlineKeyboardButton("🔄 Исправить данные", callback_data=f"dup_update:{existing_id}:{new_data}")],
+        [InlineKeyboardButton("🔄 Обновить данные", callback_data=f"dup_update:{existing_id}:{new_data}")],
         [InlineKeyboardButton("➕ Создать новую", callback_data=f"dup_create:{new_data}")],
         [InlineKeyboardButton("❌ Отмена", callback_data="dup_cancel")]
     ])
@@ -499,7 +507,7 @@ def duplicate_keyboard(existing_id: int, new_data: str) -> InlineKeyboardMarkup:
 
 def subscription_keyboard(sub_id: int, is_paused: bool = False) -> InlineKeyboardMarkup:
     pause_btn = InlineKeyboardButton(
-        "▶️ Возобновить" if is_paused else "⏸ Приостановить",
+        "▶️ Возобновить" if is_paused else "⏸ Пауза",
         callback_data=f"pause:{sub_id}"
     )
     return InlineKeyboardMarkup([
@@ -507,7 +515,11 @@ def subscription_keyboard(sub_id: int, is_paused: bool = False) -> InlineKeyboar
             InlineKeyboardButton("✏️ Изменить", callback_data=f"edit:{sub_id}"),
             InlineKeyboardButton("🗑 Удалить", callback_data=f"delete:{sub_id}")
         ],
-        [InlineKeyboardButton("✅ Оплачено", callback_data=f"paid:{sub_id}"), pause_btn]
+        [
+            InlineKeyboardButton("✅ Оплачено", callback_data=f"paid:{sub_id}"),
+            pause_btn
+        ],
+        [InlineKeyboardButton("📅 Период", callback_data=f"change_period:{sub_id}")]
     ])
 
 
@@ -581,8 +593,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"Привет, {user.first_name}! 👋\n\n"
         "Я помогу отслеживать твои подписки.\n\n"
         "Используй кнопки меню или просто напиши:\n"
-        "📝 Netflix 129 kr 15.01.26\n\n"
+        "📝 `Netflix 129 kr 15.01.26`\n\n"
         "И я добавлю подписку!",
+        parse_mode="Markdown",
         reply_markup=main_menu_keyboard()
     )
 
@@ -746,18 +759,32 @@ async def add_flow_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         return ADD_NAME
     
     context.user_data["add_name"] = text
-    await update.message.reply_text("💰 Введи цену (например: 129 kr или 9.99 EUR):")
+    
+    # Получаем валюту пользователя
+    settings = get_user_settings(user_id)
+    currency = settings["currency"]
+    
+    await update.message.reply_text(f"💰 Введи цену (например: 129 {CURRENCY_SYMBOL.get(currency, currency)} или 9.99 EUR):")
     return ADD_PRICE
 
 
 async def add_flow_price(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     text = update.message.text.strip()
+    user_id = update.effective_user.id
+    
+    # Получаем валюту пользователя по умолчанию
+    settings = get_user_settings(user_id)
+    
     parsed = parse_price(text)
     if not parsed:
         await update.message.reply_text("❌ Не понял цену. Введи число и валюту:\n129 kr, 9.99 EUR, 100")
         return ADD_PRICE
     
     amount, currency = parsed
+    # Если валюта по умолчанию, используем настройки пользователя
+    if currency == DEFAULT_CURRENCY and text.replace(",", ".").replace(" ", "").replace(".", "").isdigit():
+        currency = settings["currency"]
+    
     context.user_data["add_amount"] = amount
     context.user_data["add_currency"] = currency
     await update.message.reply_text("📅 Введи дату последней оплаты (дд.мм.гг):\nНапример: 15.01.26")
@@ -813,9 +840,10 @@ async def add_flow_date(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         f"✅ Добавлено: *{name}*\n"
         f"💰 {format_price(amount, currency)}\n"
         f"📅 Следующий платёж: {format_date(next_dt)}\n"
-        f"🏷 Категория: {category}",
+        f"🏷 Категория: {category}\n\n"
+        f"📅 *Выбери период оплаты:*",
         parse_mode="Markdown",
-        reply_markup=main_menu_keyboard()
+        reply_markup=period_keyboard(new_id)
     )
     context.user_data.clear()
     return ConversationHandler.END
@@ -864,9 +892,10 @@ async def process_quick_add(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         f"✅ Добавлено: *{name}*\n"
         f"💰 {format_price(amount, currency)}\n"
         f"📅 Следующий платёж: {format_date(next_dt)}\n"
-        f"🏷 Категория: {category}",
+        f"🏷 Категория: {category}\n\n"
+        f"📅 *Выбери период оплаты:*",
         parse_mode="Markdown",
-        reply_markup=main_menu_keyboard()
+        reply_markup=period_keyboard(new_id)
     )
     return ConversationHandler.END
 
@@ -886,14 +915,29 @@ async def list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
     
-    lines = ["📋 *Твои подписки:*\n"]
+    # Показываем список с кнопками для каждой подписки
     for sub_id, name, price_str, next_date, period, category, is_paused in subs:
         amount, currency = unpack_price(price_str)
         price_view = format_price(amount, currency)
         status = "⏸ " if is_paused else ""
-        lines.append(f"{status}*{name}* — {price_view}")
-    
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown", reply_markup=main_menu_keyboard())
+        
+        period_names = {"month": "мес", "year": "год", "week": "нед"}
+        period_text = period_names.get(period, period)
+        
+        try:
+            dt = datetime.strptime(next_date, "%Y-%m-%d")
+            date_text = format_date(dt)
+        except:
+            date_text = next_date
+        
+        await update.message.reply_text(
+            f"{status}*{name}*\n"
+            f"💰 {price_view} / {period_text}\n"
+            f"📅 Следующий: {date_text}\n"
+            f"🏷 {category}",
+            parse_mode="Markdown",
+            reply_markup=subscription_keyboard(sub_id, is_paused)
+        )
 
 
 async def next_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -993,11 +1037,13 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     data = query.data or ""
     user_id = query.from_user.id
     
+    # Статистика по годам
     if data.startswith("stats_year:"):
         year = int(data.split(":")[1])
         await show_stats_for_year(update, user_id, year, edit=True)
         return
     
+    # Подтверждение удаления
     if data.startswith("delete_confirm:"):
         sub_id = int(data.split(":")[1])
         sub = get_subscription(sub_id)
@@ -1010,6 +1056,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.edit_message_text("Отменено 👌")
         return
     
+    # Удаление
     if data.startswith("delete:"):
         sub_id = int(data.split(":")[1])
         sub = get_subscription(sub_id)
@@ -1021,6 +1068,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
         return
     
+    # Пауза
     if data.startswith("pause:"):
         sub_id = int(data.split(":")[1])
         sub = get_subscription(sub_id)
@@ -1031,6 +1079,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await query.edit_message_text(f"Подписка *{sub[1]}* {status}", parse_mode="Markdown")
         return
     
+    # Отметка оплаты
     if data.startswith("paid:"):
         sub_id = int(data.split(":")[1])
         sub = get_subscription(sub_id)
@@ -1051,6 +1100,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
         return
     
+    # Выбор периода (после добавления)
     if data.startswith("period:"):
         parts = data.split(":")
         sub_id = int(parts[1])
@@ -1063,8 +1113,52 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 last_dt = datetime.strptime(last_charge, "%Y-%m-%d")
                 new_next = next_from_last(last_dt, new_period)
                 update_subscription_field(sub_id, "next_date", new_next.strftime("%Y-%m-%d"))
+            
             period_names = {"month": "месяц", "year": "год", "week": "неделя"}
-            await query.edit_message_text(f"✅ Период: {period_names.get(new_period, new_period)}")
+            await query.edit_message_text(
+                f"✅ Период изменён на: *{period_names.get(new_period, new_period)}*\n\n"
+                f"Подписка *{sub[1]}* сохранена!",
+                parse_mode="Markdown"
+            )
+        return
+    
+    # Кнопка "Готово" после выбора периода
+    if data.startswith("period_done:"):
+        sub_id = int(data.split(":")[1])
+        sub = get_subscription(sub_id)
+        if sub:
+            period_names = {"month": "месяц", "year": "год", "week": "неделя"}
+            await query.edit_message_text(
+                f"✅ Подписка *{sub[1]}* сохранена!\n"
+                f"📅 Период: {period_names.get(sub[4], sub[4])}",
+                parse_mode="Markdown"
+            )
+        return
+    
+    # Изменить период (из списка подписок)
+    if data.startswith("change_period:"):
+        sub_id = int(data.split(":")[1])
+        sub = get_subscription(sub_id)
+        if sub and sub[8] == user_id:
+            await query.edit_message_text(
+                f"📅 *Выбери период для {sub[1]}:*",
+                parse_mode="Markdown",
+                reply_markup=period_keyboard(sub_id)
+            )
+        return
+    
+    # Редактирование (заглушка)
+    if data.startswith("edit:"):
+        sub_id = int(data.split(":")[1])
+        sub = get_subscription(sub_id)
+        if sub and sub[8] == user_id:
+            await query.edit_message_text(
+                f"✏️ Редактирование *{sub[1]}*\n\n"
+                f"Пока можно изменить только период.\n"
+                f"Для изменения цены — удали и создай заново.",
+                parse_mode="Markdown",
+                reply_markup=period_keyboard(sub_id)
+            )
         return
 
 
@@ -1159,8 +1253,10 @@ async def duplicate_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             add_payment(user_id, new_id, price, last_dt.strftime("%Y-%m-%d"))
             await query.edit_message_text(
-                f"✅ Создано: *{name}*\n💰 {format_price(amount, currency)}\n📅 {format_date(next_dt)}",
-                parse_mode="Markdown"
+                f"✅ Создано: *{name}*\n💰 {format_price(amount, currency)}\n📅 {format_date(next_dt)}\n\n"
+                f"📅 *Выбери период:*",
+                parse_mode="Markdown",
+                reply_markup=period_keyboard(new_id)
             )
         except Exception as e:
             logger.error(f"dup_create error: {e}")
@@ -1295,15 +1391,15 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE) -> None:
                 price_view = format_price(amount, currency)
                 
                 if days_left == 1:
-                    when = "завтра"
+                    when = "Завтра"
                 elif days_left == 0:
-                    when = "сегодня"
+                    when = "Сегодня"
                 else:
-                    when = f"через {days_left} дн."
+                    when = f"Через {days_left} дн."
                 
                 await context.bot.send_message(
                     chat_id=user_id,
-                    text=f"⏰ *Напоминание*\n\n{when.capitalize()} оплата *{name}*\n💰 {price_view}",
+                    text=f"⏰ *Напоминание*\n\n{when} оплата *{name}*\n💰 {price_view}",
                     parse_mode="Markdown"
                 )
                 logger.info(f"Reminder sent to {user_id} for {name}")
@@ -1335,7 +1431,7 @@ def main() -> None:
         return
     
     init_db()
-    logger.info("🚀 CODE VERSION: 2026-01-04 v4 (settings)")
+    logger.info("🚀 CODE VERSION: 2026-01-04 v5 (settings + period)")
     
     application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
     
@@ -1386,7 +1482,7 @@ def main() -> None:
     # Error handler
     application.add_error_handler(error_handler)
     
-    logger.info("Bot starting v4...")
+    logger.info("Bot starting v5...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
