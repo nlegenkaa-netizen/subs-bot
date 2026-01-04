@@ -1475,6 +1475,9 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE) -> None:
         except Exception as e:
             logger.error(f"Failed to send reminder: {e}")
 
+async def post_init(app: Application):
+    await app.bot.delete_webhook(drop_pending_updates=True)
+    logger.info("✅ Webhook deleted, pending updates dropped")
 
 def main() -> None:
     if not BOT_TOKEN:
@@ -1483,7 +1486,7 @@ def main() -> None:
 
     init_db()
 
-    application = Application.builder().token(BOT_TOKEN).build()
+    application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
     # Запускаем напоминания каждый день в 9:00
     job_queue = application.job_queue
@@ -1538,4 +1541,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-    
+
