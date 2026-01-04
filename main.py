@@ -1477,7 +1477,9 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def post_init(app: Application):
     await app.bot.delete_webhook(drop_pending_updates=True)
-    logger.info("✅ Webhook deleted, pending updates dropped")
+    me = await app.bot.get_me()
+    logger.info(f"✅ Running bot: @{me.username} (id={me.id})")
+
 
 def main() -> None:
     if not BOT_TOKEN:
