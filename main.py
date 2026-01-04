@@ -1393,6 +1393,27 @@ async def debug_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     await update.message.reply_text("\n".join(lines))
 
+async def test_reminder_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Тестовая отправка напоминания"""
+    user_id = update.effective_user.id
+    
+    subs = list_subscriptions(user_id)
+    
+    if not subs:
+        await update.message.reply_text("У тебя нет подписок для теста")
+        return
+    
+    sub_id, name, price_str, next_date, period, category, is_paused = subs[0]
+    amount, currency = unpack_price(price_str)
+    price_view = format_price(amount, currency)
+    
+    await update.message.reply_text(
+        f"⏰ *Тестовое напоминание*\n\n"
+        f"Завтра оплата *{name}*\n"
+        f"💰 {price_view}\n\n"
+        f"✅ Напоминания работают!",
+        parse_mode="Markdown"
+    )
 
 # ─────────────────────────────────────────────────────────────
 # ERROR HANDLER
@@ -1498,6 +1519,7 @@ def main() -> None:
     application.add_handler(CommandHandler("next", next_cmd))
     application.add_handler(CommandHandler("stats", stats_cmd))
     application.add_handler(CommandHandler("debug", debug_cmd))
+    application.add_handler(CommandHandler("test_reminder", test_reminder_cmd))
     application.add_handler(add_conv)
 
     # Callback handlers
