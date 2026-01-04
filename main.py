@@ -1481,6 +1481,7 @@ async def post_init(app: Application):
     logger.info(f"✅ Running bot: @{me.username} (id={me.id})")
 
 
+
 def main() -> None:
     if not BOT_TOKEN:
         logger.error("BOT_TOKEN not set!")
