@@ -1532,7 +1532,7 @@ def main() -> None:
     # Error handler
     application.add_error_handler(error_handler)
 
-    logger.info("Bot starting v2...")
+    logger.info("Bot starting v3...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
