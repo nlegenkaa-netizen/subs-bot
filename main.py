@@ -1489,6 +1489,8 @@ def main() -> None:
 
     init_db()
 
+    logger.info("🚀 CODE VERSION: 2026-01-04 19:45 (post_init with get_me)")
+
     application = Application.builder().token(BOT_TOKEN).post_init(post_init).build()
 
     # Запускаем напоминания каждый день в 9:00
