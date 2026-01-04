@@ -1530,6 +1530,12 @@ def main() -> None:
     application.add_handler(CommandHandler("test_reminder", test_reminder_cmd))
     application.add_handler(add_conv)
 
+    async def debug_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.info(f"📩 UPDATE: {update}")
+
+application.add_handler(MessageHandler(filters.ALL, debug_all))
+
+
     # Callback handlers
     application.add_handler(CallbackQueryHandler(duplicate_callback, pattern=r"^dup_"))
     application.add_handler(CallbackQueryHandler(callback_router))
